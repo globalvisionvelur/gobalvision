@@ -52,7 +52,18 @@ async function renderTable() {
   const container = document.getElementById('logs-table-container');
   container.innerHTML = `<div style="padding: 40px 20px; text-align: center; color: var(--text-muted); font-size: 13px;">Loading…</div>`;
 
-  const events = await getConnectionEvents({ eventType: currentFilters.eventType, search: currentFilters.search });
+  const { events, error } = await getConnectionEvents({ eventType: currentFilters.eventType, search: currentFilters.search });
+
+  if (error) {
+    container.innerHTML = `
+      <div style="background: var(--danger-bg); border: 1px solid var(--danger-border); border-radius: var(--radius-lg); padding: 32px 20px; text-align: center; color: var(--text-secondary);">
+        <div style="margin-bottom: 8px; display: flex; justify-content: center; color: var(--danger);">${ICONS.alert}</div>
+        <div style="font-size: 15px; font-weight: 600; color: var(--danger);">Couldn't load the activity log</div>
+        <div style="font-size: 13px; margin-top: 4px;">${escapeHtml(error)}</div>
+      </div>
+    `;
+    return;
+  }
 
   if (events.length === 0) {
     container.innerHTML = `

@@ -232,6 +232,8 @@ async function logConnectionEvent(connection, previousStatus, newStatus, actor) 
 }
 
 // ─── Connection Events (Activity Log) ──────────────────────
+// Returns { events, error }. A load failure must stay distinguishable from a
+// genuinely empty log, otherwise a missing table reads as "no activity yet".
 export async function getConnectionEvents({ eventType = 'all', search = '', limit = 300 } = {}) {
   try {
     let query = db().from('connection_events').select('*').order('created_at', { ascending: false }).limit(limit);
@@ -245,10 +247,16 @@ export async function getConnectionEvents({ eventType = 'all', search = '', limi
       const q = search.toLowerCase();
       events = events.filter((e) => (e.customer_name || '').toLowerCase().includes(q));
     }
-    return events;
+    return { events, error: null };
   } catch (err) {
     logError('getConnectionEvents', err);
-    return [];
+    const missingTable = /relation .* does not exist|schema cache/i.test(err?.message || '');
+    return {
+      events: [],
+      error: missingTable
+        ? 'The activity log table is missing — run the SQL schema from Settings → Database Connection.'
+        : err?.message || 'Could not load the activity log.',
+    };
   }
 }
 

@@ -13,6 +13,7 @@ dist-ssr
 .vite
 .env
 *.local
+CREDENTIALS.local.md
 
 # Editor directories and files
 .vscode/*
