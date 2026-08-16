@@ -19,8 +19,7 @@ import {
   deleteConnectionType,
   getAlertTiers,
   saveAlertTiers,
-  getConnections,
-  getSettings,
+  getBackupSnapshot,
 } from './store.js';
 import {
   getSupabaseConfig,
@@ -92,16 +91,16 @@ export async function renderSettings() {
         <form id="pin-form" autocomplete="off">
           <div class="form-group">
             <label for="current-pin">Current Security PIN</label>
-            <input type="password" id="current-pin" maxlength="10" required placeholder="Enter current PIN" autocomplete="off" />
+            <input type="password" id="current-pin" inputmode="numeric" maxlength="4" required placeholder="Enter current PIN" autocomplete="off" />
           </div>
           <div class="form-row">
             <div class="form-group">
               <label for="new-pin">New PIN</label>
-              <input type="password" id="new-pin" maxlength="10" required placeholder="4+ digits" autocomplete="off" />
+              <input type="password" id="new-pin" inputmode="numeric" maxlength="4" required placeholder="4 digits" autocomplete="off" />
             </div>
             <div class="form-group">
               <label for="confirm-pin">Confirm PIN</label>
-              <input type="password" id="confirm-pin" maxlength="10" required placeholder="Re-enter" autocomplete="off" />
+              <input type="password" id="confirm-pin" inputmode="numeric" maxlength="4" required placeholder="Re-enter" autocomplete="off" />
             </div>
           </div>
           <div id="pin-error" style="color: var(--danger); font-size: 12px; margin-bottom: 10px;" class="hidden"></div>
@@ -121,7 +120,7 @@ export async function renderSettings() {
               (u) => `
             <div class="team-item">
               <div class="team-left">
-                <span class="team-avatar">${u.name.charAt(0).toUpperCase()}</span>
+                <span class="team-avatar">${escapeHtml(u.name.charAt(0).toUpperCase())}</span>
                 <div>
                   <div class="team-name">${escapeHtml(u.name)} ${u.id === user?.id ? '<span style="color: var(--accent); font-size: 11px;">(You)</span>' : ''}</div>
                   <div style="font-size: 11px; color: var(--text-dim);">Added: ${new Date(u.created_at || Date.now()).toLocaleDateString('en-IN')}</div>
@@ -145,7 +144,7 @@ export async function renderSettings() {
               <input type="text" id="new-user-name" placeholder="Name" required />
             </div>
             <div class="form-group">
-              <input type="password" id="new-user-pin" maxlength="10" placeholder="Initial PIN" required autocomplete="off" />
+              <input type="password" id="new-user-pin" inputmode="numeric" maxlength="4" placeholder="4-digit PIN" required autocomplete="off" />
             </div>
           </div>
           <button type="submit" class="btn btn-ghost btn-full">Add Team Member</button>
@@ -299,12 +298,17 @@ export async function renderSettings() {
   document.getElementById('pin-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const errorEl = document.getElementById('pin-error');
+    const pinSubmitBtn = e.target.querySelector('button[type="submit"]');
+    // A second submit would re-verify against the PIN the first one just changed.
+    if (pinSubmitBtn.disabled) return;
     const currentPin = document.getElementById('current-pin').value;
     const newPin = document.getElementById('new-pin').value;
     const confirmPin = document.getElementById('confirm-pin').value;
 
-    if (newPin.length < 4) {
-      errorEl.textContent = 'New PIN must be at least 4 digits';
+    // The sign-in keypad submits automatically at exactly 4 digits, so anything
+    // longer (or non-numeric) would lock the user out of their own account.
+    if (!/^\d{4}$/.test(newPin)) {
+      errorEl.textContent = 'PIN must be exactly 4 digits';
       errorEl.classList.remove('hidden');
       return;
     }
@@ -317,23 +321,28 @@ export async function renderSettings() {
 
     if (!user) return;
 
-    const valid = await verifyPin(user.id, currentPin);
-    if (!valid) {
-      errorEl.textContent = 'Current PIN is incorrect';
-      errorEl.classList.remove('hidden');
-      return;
-    }
+    pinSubmitBtn.disabled = true;
+    try {
+      const valid = await verifyPin(user.id, currentPin);
+      if (!valid) {
+        errorEl.textContent = 'Current PIN is incorrect';
+        errorEl.classList.remove('hidden');
+        return;
+      }
 
-    const res = await changePin(user.id, newPin);
-    if (res.success) {
-      errorEl.classList.add('hidden');
-      document.getElementById('current-pin').value = '';
-      document.getElementById('new-pin').value = '';
-      document.getElementById('confirm-pin').value = '';
-      showToast('Security PIN successfully updated', 'success');
-    } else {
-      errorEl.textContent = res.message || 'Failed to update PIN. Please try again.';
-      errorEl.classList.remove('hidden');
+      const res = await changePin(user.id, newPin);
+      if (res.success) {
+        errorEl.classList.add('hidden');
+        document.getElementById('current-pin').value = '';
+        document.getElementById('new-pin').value = '';
+        document.getElementById('confirm-pin').value = '';
+        showToast('Security PIN successfully updated', 'success');
+      } else {
+        errorEl.textContent = res.message || 'Failed to update PIN. Please try again.';
+        errorEl.classList.remove('hidden');
+      }
+    } finally {
+      pinSubmitBtn.disabled = false;
     }
   });
 
@@ -344,8 +353,8 @@ export async function renderSettings() {
     const pin = document.getElementById('new-user-pin').value.trim();
     if (!name || !pin) return;
 
-    if (pin.length < 4) {
-      showToast('PIN must be at least 4 digits', 'error');
+    if (!/^\d{4}$/.test(pin)) {
+      showToast('PIN must be exactly 4 digits', 'error');
       return;
     }
 
@@ -362,11 +371,16 @@ export async function renderSettings() {
   document.querySelectorAll('.user-del-btn').forEach((btn) => {
     btn.addEventListener('click', async () => {
       const uId = btn.dataset.id;
+      const name = btn.closest('.team-item')?.querySelector('.team-name')?.textContent.trim() || 'this team member';
+      // Deleting a subscriber asks first; removing someone's login should too.
+      if (!window.confirm(`Remove ${name}? Their sign-in PIN will stop working.`)) return;
+      btn.disabled = true;
       const res = await deleteUser(uId);
       if (res.success) {
         showToast('Team member removed', 'success');
         renderSettings();
       } else {
+        btn.disabled = false;
         showToast(res.message || 'Cannot remove team member', 'error');
       }
     });
@@ -471,6 +485,14 @@ export async function renderSettings() {
       label: row.querySelector('.tier-label-input').value.trim(),
       days: parseInt(row.querySelector('.tier-days-input').value, 10),
     }));
+
+    // saveAlertTiers drops invalid rows and still reports success, which would
+    // silently delete a level the user only meant to edit.
+    if (newTiers.some((t) => !t.label || !Number.isFinite(t.days) || t.days < 1)) {
+      showToast('Every level needs a label and a day count of 1 or more', 'error');
+      return;
+    }
+
     const res = await saveAlertTiers(newTiers);
     if (res.success) {
       showToast('Alert thresholds updated', 'success');
@@ -547,21 +569,28 @@ export async function renderSettings() {
 
     document.getElementById('sql-backdrop').addEventListener('click', closeModal);
     document.getElementById('sql-close').addEventListener('click', closeModal);
-    document.getElementById('copy-sql-btn').addEventListener('click', () => {
-      navigator.clipboard.writeText(SUPABASE_SQL_SCHEMA);
-      showToast('SQL Schema copied to clipboard', 'success');
+    document.getElementById('copy-sql-btn').addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(SUPABASE_SQL_SCHEMA);
+        showToast('SQL Schema copied to clipboard', 'success');
+      } catch {
+        showToast('Copy failed — select the SQL above and copy it manually', 'error');
+      }
     });
   });
 
   // Full Backup (live export from Supabase)
   document.getElementById('export-json-btn').addEventListener('click', async () => {
-    const [users, connections, settings] = await Promise.all([getUsers(), getConnections(), getSettings()]);
-    if (users.length === 0 && connections.length === 0) {
-      showToast('No records to export', 'error');
-      return;
+    try {
+      const snapshot = await getBackupSnapshot();
+      if (snapshot.users.length === 0 && snapshot.connections.length === 0) {
+        showToast('No records to export', 'error');
+        return;
+      }
+      downloadFile(JSON.stringify(snapshot, null, 2), `globalvision_registry_${todayISO()}.json`, 'application/json');
+      showToast(`Backup downloaded — ${snapshot.connections.length} subscribers`, 'success');
+    } catch (err) {
+      showToast(err.message || 'Backup failed — nothing was downloaded', 'error');
     }
-    const snapshot = { users, connections, settings, exported_at: new Date().toISOString() };
-    downloadFile(JSON.stringify(snapshot, null, 2), `globalvision_registry_${todayISO()}.json`, 'application/json');
-    showToast('Backup downloaded', 'success');
   });
 }

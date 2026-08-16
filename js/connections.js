@@ -142,6 +142,38 @@ export async function renderConnections(onRefreshDashboard) {
   await renderTable();
 }
 
+// Splits one CSV record on commas, honouring "quoted fields" (which may contain
+// commas) and doubled "" escapes — the exact shape exportConnectionsCSV writes.
+function parseCsvLine(line) {
+  const out = [];
+  let cur = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (line[i + 1] === '"') {
+          cur += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        cur += ch;
+      }
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ',') {
+      out.push(cur);
+      cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  out.push(cur);
+  return out.map((s) => s.trim());
+}
+
 function handleImportFile(e) {
   const file = e.target.files?.[0];
   if (!file) return;
@@ -156,19 +188,18 @@ function handleImportFile(e) {
         const array = Array.isArray(data) ? data : data.connections || [];
         res = await importConnections(array);
       } else {
-        const [defaultProvider, defaultType] = await Promise.all([getProviders(), getConnectionTypes()]).then(([p, t]) => [p[0] || 'Railwire', t[0] || 'Broadband']);
-        const lines = content.split(/\r?\n/).filter(l => l.trim());
+        const lines = content.split(/\r?\n/).filter((l) => l.trim());
         if (lines.length <= 1) throw new Error('Empty file');
-        const rows = lines.slice(1).map(line => {
-          const parts = line.split(',').map(p => p.replace(/^"|"$/g, '').trim());
+        const rows = lines.slice(1).map((line) => {
+          const parts = parseCsvLine(line);
           return {
             customer_name: parts[0],
             phone: parts[1] || '',
-            provider: parts[2] || defaultProvider,
-            connection_type: parts[3] || defaultType,
-            connection_date: parts[4] || todayISO(),
-            expiry_date: parts[5] || todayISO(),
-            status: parts[6] || 'Active',
+            provider: parts[2] || '',
+            connection_type: parts[3] || '',
+            connection_date: parts[4] || '',
+            expiry_date: parts[5] || '',
+            status: parts[6] || '',
             notes: parts[7] || '',
           };
         });
@@ -176,7 +207,10 @@ function handleImportFile(e) {
       }
 
       if (res.success) {
-        showToast(`Imported ${res.count} connections`, 'success');
+        const skipped = res.skipped
+          ? ` (${res.skipped} row${res.skipped === 1 ? '' : 's'} skipped — missing name or a valid expiry date)`
+          : '';
+        showToast(`Imported ${res.count} connections${skipped}`, res.skipped ? 'warning' : 'success');
         await renderTable();
         if (refreshDashboardCb) refreshDashboardCb();
       } else {
@@ -192,10 +226,26 @@ function handleImportFile(e) {
 }
 
 async function renderTable() {
+  // The Subscribers view may never have rendered (e.g. adding from the Dashboard
+  // via the top-bar button), in which case there is no table to refresh.
   const container = document.getElementById('connections-table-container');
+  if (!container) return;
   container.innerHTML = `<div style="padding: 40px 20px; text-align: center; color: var(--text-muted); font-size: 13px;">Loading…</div>`;
 
   const tiers = await getAlertTiers();
+
+  // Alert tier ids are data, not constants — a tier can be renamed or removed.
+  // Fall back to the most urgent tier rather than silently filtering nothing.
+  if (
+    currentFilters.urgency !== 'all' &&
+    currentFilters.urgency !== 'overdue' &&
+    !tiers.some((t) => t.id === currentFilters.urgency)
+  ) {
+    currentFilters.urgency = tiers.length ? tiers[0].id : 'all';
+    const urgencySelect = document.getElementById('filter-urgency');
+    if (urgencySelect) urgencySelect.value = currentFilters.urgency;
+  }
+
   let connections = await queryConnections(currentFilters);
 
   if (currentFilters.urgency !== 'all') {
@@ -264,9 +314,19 @@ async function renderTable() {
         if (refreshDashboardCb) refreshDashboardCb();
       } else {
         showToast(res.message || 'Failed to update status', 'error');
+        // The write failed, so re-render to drop the value the select is showing.
+        await renderTable();
       }
     });
   });
+}
+
+// A record can hold a provider/type/status that is no longer in the configured
+// list (imported, or the option was renamed since). Keep the stored value in the
+// dropdown, otherwise the browser selects the first option and the next save
+// silently rewrites the record.
+function withCurrent(list, value) {
+  return value && !list.includes(value) ? [value, ...list] : list;
 }
 
 function renderTableRow(c, tiers) {
@@ -319,7 +379,9 @@ function renderTableRow(c, tiers) {
       </td>
       <td>
         <select class="status-chip-select table-status-select" data-id="${c.id}">
-          ${STATUSES.map((s) => `<option value="${s}" ${c.status === s ? 'selected' : ''}>${s}</option>`).join('')}
+          ${withCurrent(STATUSES, c.status)
+            .map((s) => `<option value="${escapeHtml(s)}" ${c.status === s ? 'selected' : ''}>${escapeHtml(s)}</option>`)
+            .join('')}
         </select>
       </td>
       <td style="text-align: right;">
@@ -336,7 +398,7 @@ function renderTableRow(c, tiers) {
   `;
 }
 
-export async function openModal(editId = null) {
+export async function openModal(editId = null, onSaved = null) {
   const modal = document.getElementById('connection-modal');
   modal.innerHTML = `
     <div class="modal-backdrop" id="modal-backdrop-loading"></div>
@@ -349,11 +411,24 @@ export async function openModal(editId = null) {
   };
   document.getElementById('modal-backdrop-loading').addEventListener('click', cancelLoading);
 
-  const [existing, providers, connectionTypes] = await Promise.all([
+  const [existing, allProviders, allConnectionTypes] = await Promise.all([
     editId ? getConnectionById(editId) : Promise.resolve(null),
     getProviders(),
     getConnectionTypes(),
   ]);
+
+  // Editing a record we couldn't load would silently fall through to the "add"
+  // branch on submit and create a duplicate.
+  if (editId && !existing) {
+    modal.classList.add('hidden');
+    modal.innerHTML = '';
+    showToast('Could not load that subscriber — please try again', 'error');
+    return;
+  }
+
+  const providers = withCurrent(allProviders, existing?.provider);
+  const connectionTypes = withCurrent(allConnectionTypes, existing?.connection_type);
+  const statuses = withCurrent(STATUSES, existing?.status);
 
   modal.innerHTML = `
     <div class="modal-backdrop" id="modal-backdrop"></div>
@@ -401,7 +476,7 @@ export async function openModal(editId = null) {
         <div class="form-group">
           <label for="cf-status">Status</label>
           <select id="cf-status" required>
-            ${STATUSES.map((s) => `<option value="${s}" ${(existing?.status || 'Active') === s ? 'selected' : ''}>${s}</option>`).join('')}
+            ${statuses.map((s) => `<option value="${escapeHtml(s)}" ${(existing?.status || 'Active') === s ? 'selected' : ''}>${escapeHtml(s)}</option>`).join('')}
           </select>
         </div>
         <div class="form-group">
@@ -450,18 +525,22 @@ export async function openModal(editId = null) {
       closeModal();
       await renderTable();
       if (refreshDashboardCb) refreshDashboardCb();
+      if (onSaved) await onSaved();
     } else {
       submitBtn.disabled = false;
       showToast(res.message || 'Failed to save subscriber', 'error');
     }
   });
 
-  setTimeout(() => document.getElementById('cf-name').focus(), 50);
+  setTimeout(() => document.getElementById('cf-name')?.focus(), 50);
 }
 
 async function handleDelete(id) {
   const c = await getConnectionById(id);
-  if (!c) return;
+  if (!c) {
+    showToast('Could not load that subscriber — please try again', 'error');
+    return;
+  }
 
   const modal = document.getElementById('connection-modal');
   modal.innerHTML = `

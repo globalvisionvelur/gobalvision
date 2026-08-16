@@ -2,7 +2,7 @@
  * Authentication module — Precision PIN Keypad with instant verification.
  */
 import { getUsers, verifyPin, getUserById } from './store.js';
-import { showToast } from './utils.js';
+import { showToast, escapeHtml } from './utils.js';
 
 const SESSION_KEY = 'globalvision_session';
 
@@ -58,8 +58,8 @@ export async function renderLogin(onLoginSuccess) {
             .map(
               (u) => `
             <button type="button" class="auth-user-btn ${u.id === selectedUserId ? 'active' : ''}" data-user-id="${u.id}">
-              <span class="auth-user-avatar">${u.name.charAt(0).toUpperCase()}</span>
-              <span>${u.name}</span>
+              <span class="auth-user-avatar">${escapeHtml(u.name.charAt(0).toUpperCase())}</span>
+              <span>${escapeHtml(u.name)}</span>
             </button>
           `
             )

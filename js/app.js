@@ -1,14 +1,14 @@
 /**
  * Main application controller — SPA router, sidebar navigation, top bar controls.
  */
-import { initStore, getUrgentConnections } from './store.js';
+import { initStore, getUrgentConnections, getAlertTiers } from './store.js';
 import { renderLogin, getSession, clearSession, getCurrentUser } from './auth.js';
 import { renderDashboard } from './dashboard.js';
 import { renderConnections, openModal } from './connections.js';
 import { renderLogs } from './logs.js';
 import { renderSettings } from './settings.js';
 import { getSupabaseConfig, saveSupabaseConfig, isSupabaseConfigured, testSupabaseConnection } from './supabase.js';
-import { ICONS, showToast } from './utils.js';
+import { ICONS, showToast, escapeHtml } from './utils.js';
 
 let currentView = 'dashboard';
 
@@ -126,16 +126,21 @@ async function showMainApp(user) {
 function setupTopBar() {
   const globalAddBtn = document.getElementById('global-add-btn');
   if (globalAddBtn) {
-    globalAddBtn.onclick = () => openModal();
+    // Refresh whatever view we're on — adding from the Dashboard would otherwise
+    // leave its counts and queue stale.
+    globalAddBtn.onclick = () => openModal(null, () => navigateTo(currentView));
   }
 
   const alertPill = document.getElementById('quick-alert-pill');
   if (alertPill) {
     alertPill.onclick = async () => {
       await navigateTo('connections');
+      // Tier ids are user data, not constants — resolve the most urgent one
+      // rather than assuming a tier still has the seeded id 'critical'.
+      const tiers = await getAlertTiers();
       const filterUrgency = document.getElementById('filter-urgency');
-      if (filterUrgency) {
-        filterUrgency.value = 'critical';
+      if (filterUrgency && tiers.length) {
+        filterUrgency.value = tiers[0].id;
         filterUrgency.dispatchEvent(new Event('change'));
       }
     };
@@ -188,8 +193,8 @@ async function renderSidebar(user) {
 
     <div class="sidebar-footer-box">
       <div class="sidebar-user-info">
-        <span class="user-avatar-badge">${user.name.charAt(0).toUpperCase()}</span>
-        <span class="user-text-name">${user.name}</span>
+        <span class="user-avatar-badge">${escapeHtml(user.name.charAt(0).toUpperCase())}</span>
+        <span class="user-text-name">${escapeHtml(user.name)}</span>
       </div>
       <button type="button" class="icon-btn icon-btn-danger" id="sidebar-logout-btn" title="Sign Out">
         ${ICONS.logout}
@@ -244,7 +249,7 @@ function renderMobileNav() {
 
   document.getElementById('mobile-add-btn').addEventListener('click', (e) => {
     e.preventDefault();
-    openModal();
+    openModal(null, () => navigateTo(currentView));
   });
 }
 

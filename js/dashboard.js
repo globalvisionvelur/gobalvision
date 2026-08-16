@@ -9,6 +9,7 @@ import {
   updateConnection,
 } from './store.js';
 import { getCurrentUser } from './auth.js';
+import { openModal } from './connections.js';
 import {
   daysUntil,
   formatDate,
@@ -189,6 +190,18 @@ export async function renderDashboard(onAddNew, onViewConnection, onRefresh) {
     btn.addEventListener('click', async () => {
       const id = btn.dataset.id;
       const newStatus = btn.dataset.status;
+
+      // Renewing means a new expiry date. Writing only the status would leave
+      // the subscriber sitting in this queue with the same overdue date, so the
+      // task could never be cleared — open the record instead.
+      if (newStatus === 'Renewed') {
+        await openModal(id, async () => {
+          await renderDashboard(onAddNew, onViewConnection, onRefresh);
+          if (onRefresh) onRefresh();
+        });
+        return;
+      }
+
       const actor = await getCurrentUser();
       const res = await updateConnection(id, { status: newStatus }, actor);
       if (res.success) {
@@ -250,7 +263,7 @@ function renderQueueRow(connection, tiers) {
         `
             : ''
         }
-        <button type="button" class="btn btn-sm btn-ghost queue-status-btn" data-id="${connection.id}" data-status="Renewed" title="Mark as Renewed">
+        <button type="button" class="btn btn-sm btn-ghost queue-status-btn" data-id="${connection.id}" data-status="Renewed" title="Renew — set the new expiry date">
           ✓ Renew
         </button>
         <button type="button" class="btn btn-sm btn-danger queue-status-btn" data-id="${connection.id}" data-status="Disconnected" title="Mark as Disconnected">

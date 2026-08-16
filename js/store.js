@@ -4,7 +4,7 @@
  * empty defaults on error (logged to console), write functions return
  * { success, message?, data? } so callers can surface a toast on failure.
  */
-import { generateId, hashPin, todayISO, ALERT_COLOR_CYCLE } from './utils.js';
+import { generateId, hashPin, todayISO, ALERT_COLOR_CYCLE, STATUSES } from './utils.js';
 import { getSupabase } from './supabase.js';
 
 const DEFAULT_PROVIDERS = ['Railwire', 'BSNL', 'K-Fone', 'Kerala Vision'];
@@ -236,18 +236,16 @@ async function logConnectionEvent(connection, previousStatus, newStatus, actor) 
 // genuinely empty log, otherwise a missing table reads as "no activity yet".
 export async function getConnectionEvents({ eventType = 'all', search = '', limit = 300 } = {}) {
   try {
-    let query = db().from('connection_events').select('*').order('created_at', { ascending: false }).limit(limit);
+    // Filter server-side: a client-side pass would only ever search within the
+    // newest `limit` rows and report older matches as "no activity".
+    let query = db().from('connection_events').select('*');
     if (eventType !== 'all') query = query.eq('new_status', eventType);
+    if (search) query = query.ilike('customer_name', `%${search.replace(/[%_\\]/g, '\\$&')}%`);
 
-    const { data, error } = await query;
+    const { data, error } = await query.order('created_at', { ascending: false }).limit(limit);
     if (error) throw error;
 
-    let events = data || [];
-    if (search) {
-      const q = search.toLowerCase();
-      events = events.filter((e) => (e.customer_name || '').toLowerCase().includes(q));
-    }
-    return { events, error: null };
+    return { events: data || [], error: null };
   } catch (err) {
     logError('getConnectionEvents', err);
     const missingTable = /relation .* does not exist|schema cache/i.test(err?.message || '');
@@ -269,6 +267,34 @@ export async function deleteConnection(id) {
     logError('deleteConnection', err);
     return { success: false, message: err?.message || 'Failed to delete subscriber' };
   }
+}
+
+// Read paths above return empty defaults on failure so a screen can still
+// render. A backup must not: an empty file that claims success is worse than
+// no file, so this throws instead.
+export async function getBackupSnapshot() {
+  const client = getSupabase();
+  if (!client) throw new Error('Supabase is not configured');
+
+  const [users, connections, settings] = await Promise.all([
+    client.from('users').select('*').order('created_at', { ascending: true }),
+    client.from('connections').select('*'),
+    client.from('app_settings').select('*').eq('id', 1).maybeSingle(),
+  ]);
+
+  for (const [label, res] of [['users', users], ['subscribers', connections], ['settings', settings]]) {
+    if (res.error) {
+      logError('getBackupSnapshot', res.error);
+      throw new Error(`Could not read ${label}: ${res.error.message || 'unknown error'}`);
+    }
+  }
+
+  return {
+    users: users.data || [],
+    connections: connections.data || [],
+    settings: settings.data || null,
+    exported_at: new Date().toISOString(),
+  };
 }
 
 // ─── Filtered / Sorted Queries ─────────────────────────────
@@ -367,31 +393,45 @@ export async function getUrgentConnections() {
 }
 
 // ─── Bulk Import ───────────────────────────────────────────
+const isISODate = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v || '');
+
+// Match an incoming free-text value against the allowed list case-insensitively,
+// falling back rather than storing a value no dropdown can represent.
+function matchOption(value, allowed, fallback) {
+  const trimmed = String(value || '').trim();
+  return allowed.find((a) => a.toLowerCase() === trimmed.toLowerCase()) || fallback;
+}
+
 export async function importConnections(newItems) {
   try {
-    const [defaultProvider, defaultType] = await Promise.all([getProviders(), getConnectionTypes()]).then(([p, t]) => [p[0] || 'Railwire', t[0] || 'Broadband']);
+    const [providers, types] = await Promise.all([getProviders(), getConnectionTypes()]);
+    const defaultProvider = providers[0] || 'Railwire';
+    const defaultType = types[0] || 'Broadband';
 
+    // A single bad date fails the whole batch insert, so drop unusable rows here
+    // and tell the caller how many were skipped.
     const rows = newItems
-      .filter((item) => item.customer_name && item.expiry_date)
+      .filter((item) => item.customer_name && isISODate(item.expiry_date))
       .map((item) => ({
         customer_name: item.customer_name,
         phone: item.phone || '',
-        provider: item.provider || defaultProvider,
-        connection_type: item.connection_type || defaultType,
-        connection_date: item.connection_date || todayISO(),
+        provider: matchOption(item.provider, providers, defaultProvider),
+        connection_type: matchOption(item.connection_type, types, defaultType),
+        connection_date: isISODate(item.connection_date) ? item.connection_date : todayISO(),
         expiry_date: item.expiry_date,
-        status: item.status || 'Active',
+        status: matchOption(item.status, STATUSES, 'Active'),
         notes: item.notes || '',
       }));
 
-    if (rows.length === 0) return { success: true, count: 0 };
+    const skipped = newItems.length - rows.length;
+    if (rows.length === 0) return { success: true, count: 0, skipped };
 
     const { data, error } = await db().from('connections').insert(rows).select();
     if (error) throw error;
-    return { success: true, count: data?.length || 0 };
+    return { success: true, count: data?.length || 0, skipped };
   } catch (err) {
     logError('importConnections', err);
-    return { success: false, message: err?.message || 'Import failed', count: 0 };
+    return { success: false, message: err?.message || 'Import failed', count: 0, skipped: 0 };
   }
 }
 

@@ -190,7 +190,7 @@ export function showToast(message, type = 'success') {
   toast.className = `toast toast-${type}`;
   toast.innerHTML = `
     <span class="toast-icon">${type === 'success' ? ICONS.check : type === 'error' ? ICONS.close : ICONS.alert}</span>
-    <span class="toast-message">${message}</span>
+    <span class="toast-message">${escapeHtml(message)}</span>
   `;
 
   container.appendChild(toast);
