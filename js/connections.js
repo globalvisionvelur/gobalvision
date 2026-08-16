@@ -13,6 +13,7 @@ import {
   getConnectionTypes,
   getAlertTiers,
 } from './store.js';
+import { getCurrentUser } from './auth.js';
 import {
   daysUntil,
   formatDate,
@@ -255,7 +256,8 @@ async function renderTable() {
     sel.addEventListener('change', async () => {
       const id = sel.dataset.id;
       const status = sel.value;
-      const res = await updateConnection(id, { status });
+      const actor = await getCurrentUser();
+      const res = await updateConnection(id, { status }, actor);
       if (res.success) {
         showToast(`Status updated to ${status}`, 'success');
         await renderTable();
@@ -441,7 +443,8 @@ export async function openModal(editId = null) {
     const submitBtn = document.getElementById('connection-form-submit');
     submitBtn.disabled = true;
 
-    const res = existing ? await updateConnection(editId, data) : await addConnection(data);
+    const actor = await getCurrentUser();
+    const res = existing ? await updateConnection(editId, data, actor) : await addConnection(data);
     if (res.success) {
       showToast(existing ? 'Subscriber record updated' : 'Subscriber added', 'success');
       closeModal();

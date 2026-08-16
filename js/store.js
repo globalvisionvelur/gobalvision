@@ -184,8 +184,14 @@ export async function addConnection(connection) {
   }
 }
 
-export async function updateConnection(id, updates) {
+export async function updateConnection(id, updates, actor = null) {
   try {
+    let previousStatus = null;
+    if (updates.status) {
+      const { data: before } = await db().from('connections').select('status').eq('id', id).maybeSingle();
+      previousStatus = before?.status || null;
+    }
+
     const { data, error } = await db()
       .from('connections')
       .update({ ...updates, updated_at: new Date().toISOString() })
@@ -193,10 +199,56 @@ export async function updateConnection(id, updates) {
       .select()
       .single();
     if (error) throw error;
+
+    if (updates.status && updates.status !== previousStatus) {
+      await logConnectionEvent(data, previousStatus, updates.status, actor);
+    }
+
     return { success: true, data };
   } catch (err) {
     logError('updateConnection', err);
     return { success: false, message: err?.message || 'Failed to update subscriber' };
+  }
+}
+
+// Best-effort audit trail for status changes (e.g. disconnections). A logging
+// failure must never block the underlying status update, so errors are swallowed.
+async function logConnectionEvent(connection, previousStatus, newStatus, actor) {
+  try {
+    const { error } = await db().from('connection_events').insert({
+      connection_id: connection.id,
+      customer_name: connection.customer_name,
+      provider: connection.provider,
+      connection_type: connection.connection_type,
+      previous_status: previousStatus,
+      new_status: newStatus,
+      changed_by: actor?.id || null,
+      changed_by_name: actor?.name || null,
+    });
+    if (error) throw error;
+  } catch (err) {
+    logError('logConnectionEvent', err);
+  }
+}
+
+// ─── Connection Events (Activity Log) ──────────────────────
+export async function getConnectionEvents({ eventType = 'all', search = '', limit = 300 } = {}) {
+  try {
+    let query = db().from('connection_events').select('*').order('created_at', { ascending: false }).limit(limit);
+    if (eventType !== 'all') query = query.eq('new_status', eventType);
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    let events = data || [];
+    if (search) {
+      const q = search.toLowerCase();
+      events = events.filter((e) => (e.customer_name || '').toLowerCase().includes(q));
+    }
+    return events;
+  } catch (err) {
+    logError('getConnectionEvents', err);
+    return [];
   }
 }
 

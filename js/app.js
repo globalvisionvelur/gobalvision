@@ -5,6 +5,7 @@ import { initStore, getUrgentConnections } from './store.js';
 import { renderLogin, getSession, clearSession, getCurrentUser } from './auth.js';
 import { renderDashboard } from './dashboard.js';
 import { renderConnections, openModal } from './connections.js';
+import { renderLogs } from './logs.js';
 import { renderSettings } from './settings.js';
 import { getSupabaseConfig, saveSupabaseConfig, isSupabaseConfigured, testSupabaseConnection } from './supabase.js';
 import { ICONS, showToast } from './utils.js';
@@ -170,6 +171,13 @@ async function renderSidebar(user) {
         </div>
       </a>
 
+      <a href="#" class="nav-link ${currentView === 'logs' ? 'active' : ''}" data-view="logs">
+        <div class="nav-link-left">
+          ${ICONS.clock}
+          <span>Logs</span>
+        </div>
+      </a>
+
       <a href="#" class="nav-link ${currentView === 'settings' ? 'active' : ''}" data-view="settings">
         <div class="nav-link-left">
           ${ICONS.settings}
@@ -216,6 +224,10 @@ function renderMobileNav() {
     <a href="#" class="mobile-tab-btn" id="mobile-add-btn" style="color: var(--accent);">
       ${ICONS.plus}
       <span>Add</span>
+    </a>
+    <a href="#" class="mobile-tab-btn ${currentView === 'logs' ? 'active' : ''}" data-view="logs">
+      ${ICONS.clock}
+      <span>Logs</span>
     </a>
     <a href="#" class="mobile-tab-btn ${currentView === 'settings' ? 'active' : ''}" data-view="settings">
       ${ICONS.settings}
@@ -274,6 +286,9 @@ async function navigateTo(view) {
         const user = await getCurrentUser();
         if (user) await renderSidebar(user);
       });
+      break;
+    case 'logs':
+      await renderLogs();
       break;
     case 'settings':
       await renderSettings();

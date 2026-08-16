@@ -8,6 +8,7 @@ import {
   getAlertTiers,
   updateConnection,
 } from './store.js';
+import { getCurrentUser } from './auth.js';
 import {
   daysUntil,
   formatDate,
@@ -188,7 +189,8 @@ export async function renderDashboard(onAddNew, onViewConnection, onRefresh) {
     btn.addEventListener('click', async () => {
       const id = btn.dataset.id;
       const newStatus = btn.dataset.status;
-      const res = await updateConnection(id, { status: newStatus });
+      const actor = await getCurrentUser();
+      const res = await updateConnection(id, { status: newStatus }, actor);
       if (res.success) {
         showToast(`Updated to ${newStatus}`, 'success');
         await renderDashboard(onAddNew, onViewConnection, onRefresh);

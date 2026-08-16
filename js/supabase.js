@@ -115,12 +115,27 @@ CREATE TABLE IF NOT EXISTS public.app_settings (
   CONSTRAINT app_settings_singleton CHECK (id = 1)
 );
 
--- 4. Enable Row Level Security (RLS)
+-- 4. Connection Events Table (audit log of status changes, e.g. disconnections)
+CREATE TABLE IF NOT EXISTS public.connection_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  connection_id UUID REFERENCES public.connections(id) ON DELETE SET NULL,
+  customer_name TEXT NOT NULL,
+  provider TEXT,
+  connection_type TEXT,
+  previous_status TEXT,
+  new_status TEXT NOT NULL,
+  changed_by UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  changed_by_name TEXT,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- 5. Enable Row Level Security (RLS)
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.connections ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.connection_events ENABLE ROW LEVEL SECURITY;
 
--- 5. Open Policies (for Anon Key access)
+-- 6. Open Policies (for Anon Key access)
 CREATE POLICY "Allow public read users" ON public.users FOR SELECT USING (true);
 CREATE POLICY "Allow public insert users" ON public.users FOR INSERT WITH CHECK (true);
 CREATE POLICY "Allow public update users" ON public.users FOR UPDATE USING (true);
@@ -135,6 +150,9 @@ CREATE POLICY "Allow public read app_settings" ON public.app_settings FOR SELECT
 CREATE POLICY "Allow public insert app_settings" ON public.app_settings FOR INSERT WITH CHECK (true);
 CREATE POLICY "Allow public update app_settings" ON public.app_settings FOR UPDATE USING (true);
 
--- 6. Seed the single settings row
+CREATE POLICY "Allow public read connection_events" ON public.connection_events FOR SELECT USING (true);
+CREATE POLICY "Allow public insert connection_events" ON public.connection_events FOR INSERT WITH CHECK (true);
+
+-- 7. Seed the single settings row
 INSERT INTO public.app_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 `;
