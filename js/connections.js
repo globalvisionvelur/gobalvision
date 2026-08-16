@@ -29,12 +29,12 @@ import {
 let currentFilters = { search: '', provider: 'all', connectionType: 'all', status: 'all', urgency: 'all' };
 let refreshDashboardCb = null;
 
-export function renderConnections(onRefreshDashboard) {
+export async function renderConnections(onRefreshDashboard) {
   refreshDashboardCb = onRefreshDashboard;
   const view = document.getElementById('connections-view');
-  const providers = getProviders();
-  const connectionTypes = getConnectionTypes();
-  const tiers = getAlertTiers();
+  view.innerHTML = `<div style="padding: 60px 20px; text-align: center; color: var(--text-muted); font-size: 13px;">Loading subscribers…</div>`;
+
+  const [providers, connectionTypes, tiers] = await Promise.all([getProviders(), getConnectionTypes(), getAlertTiers()]);
 
   view.innerHTML = `
     <div class="conns-header">
@@ -101,8 +101,8 @@ export function renderConnections(onRefreshDashboard) {
   document.getElementById('conn-add-btn').addEventListener('click', () => openModal());
 
   // Export CSV
-  document.getElementById('conn-export-btn').addEventListener('click', () => {
-    const list = getConnections();
+  document.getElementById('conn-export-btn').addEventListener('click', async () => {
+    const list = await getConnections();
     if (list.length === 0) {
       showToast('No subscribers to export', 'error');
       return;
@@ -138,7 +138,7 @@ export function renderConnections(onRefreshDashboard) {
     renderTable();
   });
 
-  renderTable();
+  await renderTable();
 }
 
 function handleImportFile(e) {
@@ -146,17 +146,16 @@ function handleImportFile(e) {
   if (!file) return;
 
   const reader = new FileReader();
-  reader.onload = (evt) => {
+  reader.onload = async (evt) => {
     try {
       const content = evt.target.result;
+      let res;
       if (file.name.endsWith('.json')) {
         const data = JSON.parse(content);
         const array = Array.isArray(data) ? data : data.connections || [];
-        const count = importConnections(array);
-        showToast(`Imported ${count} connections`, 'success');
+        res = await importConnections(array);
       } else {
-        const defaultProvider = getProviders()[0] || 'Railwire';
-        const defaultType = getConnectionTypes()[0] || 'Broadband';
+        const [defaultProvider, defaultType] = await Promise.all([getProviders(), getConnectionTypes()]).then(([p, t]) => [p[0] || 'Railwire', t[0] || 'Broadband']);
         const lines = content.split(/\r?\n/).filter(l => l.trim());
         if (lines.length <= 1) throw new Error('Empty file');
         const rows = lines.slice(1).map(line => {
@@ -172,22 +171,31 @@ function handleImportFile(e) {
             notes: parts[7] || '',
           };
         });
-        const count = importConnections(rows);
-        showToast(`Imported ${count} connections`, 'success');
+        res = await importConnections(rows);
       }
-      renderTable();
-      if (refreshDashboardCb) refreshDashboardCb();
+
+      if (res.success) {
+        showToast(`Imported ${res.count} connections`, 'success');
+        await renderTable();
+        if (refreshDashboardCb) refreshDashboardCb();
+      } else {
+        showToast('Import failed: ' + (res.message || 'unknown error'), 'error');
+      }
     } catch (err) {
       showToast('Import failed: ' + err.message, 'error');
+    } finally {
+      e.target.value = '';
     }
   };
   reader.readAsText(file);
 }
 
-function renderTable() {
+async function renderTable() {
   const container = document.getElementById('connections-table-container');
-  const tiers = getAlertTiers();
-  let connections = queryConnections(currentFilters);
+  container.innerHTML = `<div style="padding: 40px 20px; text-align: center; color: var(--text-muted); font-size: 13px;">Loading…</div>`;
+
+  const tiers = await getAlertTiers();
+  let connections = await queryConnections(currentFilters);
 
   if (currentFilters.urgency !== 'all') {
     connections = connections.filter((c) => {
@@ -244,13 +252,17 @@ function renderTable() {
   });
 
   container.querySelectorAll('.table-status-select').forEach((sel) => {
-    sel.addEventListener('change', () => {
+    sel.addEventListener('change', async () => {
       const id = sel.dataset.id;
       const status = sel.value;
-      updateConnection(id, { status });
-      showToast(`Status updated to ${status}`, 'success');
-      renderTable();
-      if (refreshDashboardCb) refreshDashboardCb();
+      const res = await updateConnection(id, { status });
+      if (res.success) {
+        showToast(`Status updated to ${status}`, 'success');
+        await renderTable();
+        if (refreshDashboardCb) refreshDashboardCb();
+      } else {
+        showToast(res.message || 'Failed to update status', 'error');
+      }
     });
   });
 }
@@ -322,11 +334,24 @@ function renderTableRow(c, tiers) {
   `;
 }
 
-export function openModal(editId = null) {
+export async function openModal(editId = null) {
   const modal = document.getElementById('connection-modal');
-  const existing = editId ? getConnectionById(editId) : null;
-  const providers = getProviders();
-  const connectionTypes = getConnectionTypes();
+  modal.innerHTML = `
+    <div class="modal-backdrop" id="modal-backdrop-loading"></div>
+    <div class="modal-content" style="text-align: center; padding: 40px 20px; color: var(--text-muted); font-size: 13px;">Loading…</div>
+  `;
+  modal.classList.remove('hidden');
+  const cancelLoading = () => {
+    modal.classList.add('hidden');
+    modal.innerHTML = '';
+  };
+  document.getElementById('modal-backdrop-loading').addEventListener('click', cancelLoading);
+
+  const [existing, providers, connectionTypes] = await Promise.all([
+    editId ? getConnectionById(editId) : Promise.resolve(null),
+    getProviders(),
+    getConnectionTypes(),
+  ]);
 
   modal.innerHTML = `
     <div class="modal-backdrop" id="modal-backdrop"></div>
@@ -383,15 +408,13 @@ export function openModal(editId = null) {
         </div>
         <div class="modal-actions">
           <button type="button" class="btn btn-ghost" id="modal-cancel">Cancel</button>
-          <button type="submit" class="btn btn-primary">
+          <button type="submit" class="btn btn-primary" id="connection-form-submit">
             ${existing ? 'Save Changes' : 'Add Subscriber'}
           </button>
         </div>
       </form>
     </div>
   `;
-
-  modal.classList.remove('hidden');
 
   const closeModal = () => {
     modal.classList.add('hidden');
@@ -402,7 +425,7 @@ export function openModal(editId = null) {
   document.getElementById('modal-close').addEventListener('click', closeModal);
   document.getElementById('modal-cancel').addEventListener('click', closeModal);
 
-  document.getElementById('connection-form').addEventListener('submit', (e) => {
+  document.getElementById('connection-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const data = {
       customer_name: document.getElementById('cf-name').value.trim(),
@@ -415,24 +438,26 @@ export function openModal(editId = null) {
       notes: document.getElementById('cf-notes').value.trim(),
     };
 
-    if (existing) {
-      updateConnection(editId, data);
-      showToast('Subscriber record updated', 'success');
-    } else {
-      addConnection(data);
-      showToast('Subscriber added', 'success');
-    }
+    const submitBtn = document.getElementById('connection-form-submit');
+    submitBtn.disabled = true;
 
-    closeModal();
-    renderTable();
-    if (refreshDashboardCb) refreshDashboardCb();
+    const res = existing ? await updateConnection(editId, data) : await addConnection(data);
+    if (res.success) {
+      showToast(existing ? 'Subscriber record updated' : 'Subscriber added', 'success');
+      closeModal();
+      await renderTable();
+      if (refreshDashboardCb) refreshDashboardCb();
+    } else {
+      submitBtn.disabled = false;
+      showToast(res.message || 'Failed to save subscriber', 'error');
+    }
   });
 
   setTimeout(() => document.getElementById('cf-name').focus(), 50);
 }
 
-function handleDelete(id) {
-  const c = getConnectionById(id);
+async function handleDelete(id) {
+  const c = await getConnectionById(id);
   if (!c) return;
 
   const modal = document.getElementById('connection-modal');
@@ -460,11 +485,15 @@ function handleDelete(id) {
 
   document.getElementById('del-backdrop').addEventListener('click', closeModal);
   document.getElementById('del-cancel').addEventListener('click', closeModal);
-  document.getElementById('del-confirm').addEventListener('click', () => {
-    deleteConnection(id);
-    showToast('Subscriber deleted', 'success');
-    closeModal();
-    renderTable();
-    if (refreshDashboardCb) refreshDashboardCb();
+  document.getElementById('del-confirm').addEventListener('click', async () => {
+    const res = await deleteConnection(id);
+    if (res.success) {
+      showToast('Subscriber deleted', 'success');
+      closeModal();
+      await renderTable();
+      if (refreshDashboardCb) refreshDashboardCb();
+    } else {
+      showToast(res.message || 'Failed to delete subscriber', 'error');
+    }
   });
 }

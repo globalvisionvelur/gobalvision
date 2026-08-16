@@ -1,10 +1,11 @@
 /**
- * LocalStorage-based data store for GlobalVision.
- * Designed to be easily replaceable with Supabase.
+ * Data layer for GlobalVision — talks directly to Supabase (no local cache).
+ * Every exported function does a live network call; read functions return
+ * empty defaults on error (logged to console), write functions return
+ * { success, message?, data? } so callers can surface a toast on failure.
  */
 import { generateId, hashPin, todayISO, ALERT_COLOR_CYCLE } from './utils.js';
-
-const STORE_KEY = 'globalvision_store';
+import { getSupabase } from './supabase.js';
 
 const DEFAULT_PROVIDERS = ['Railwire', 'BSNL', 'K-Fone', 'Kerala Vision'];
 const DEFAULT_CONNECTION_TYPES = ['Broadband', 'Cable TV'];
@@ -14,313 +15,212 @@ const DEFAULT_ALERT_TIERS = [
   { id: 'low', label: 'Low', days: 60, color: 'info' },
 ];
 
-function defaultSettings() {
-  return {
-    providers: [...DEFAULT_PROVIDERS],
-    connectionTypes: [...DEFAULT_CONNECTION_TYPES],
-    alertTiers: DEFAULT_ALERT_TIERS.map((t) => ({ ...t })),
-  };
+function db() {
+  const client = getSupabase();
+  if (!client) throw new Error('Supabase is not configured');
+  return client;
 }
 
-function getStore() {
-  const raw = localStorage.getItem(STORE_KEY);
-  if (raw) return JSON.parse(raw);
-  return null;
+function logError(context, error) {
+  console.error(`[store] ${context}:`, error?.message || error);
 }
 
-function saveStore(store) {
-  localStorage.setItem(STORE_KEY, JSON.stringify(store));
-}
-
-// ─── Initialize Default Data ──────────────────────────────
+// ─── Bootstrap ──────────────────────────────────────────────
+// Called once at app startup, after Supabase is confirmed configured.
+// Ensures the settings row exists and seeds a default user on a brand-new project.
 export async function initStore() {
-  let store = getStore();
-  if (!store) {
-    const defaultPinHash = await hashPin('2026');
-    store = {
-      users: [
-        {
-          id: generateId(),
-          name: 'Thanu',
-          pin_hash: defaultPinHash,
-          created_at: new Date().toISOString(),
-        },
-      ],
-      connections: [],
-      settings: defaultSettings(),
-    };
-    saveStore(store);
-    return store;
-  }
+  const client = getSupabase();
+  if (!client) return { ok: false, message: 'Supabase is not configured.' };
 
-  // Backfill settings for stores created before this feature existed.
-  let changed = false;
-  if (!store.settings) {
-    store.settings = defaultSettings();
-    changed = true;
-  } else {
-    if (!Array.isArray(store.settings.providers) || store.settings.providers.length === 0) {
-      store.settings.providers = [...DEFAULT_PROVIDERS];
-      changed = true;
+  try {
+    const { data: settingsRow, error: settingsErr } = await client.from('app_settings').select('*').eq('id', 1).maybeSingle();
+    if (settingsErr) throw settingsErr;
+    if (!settingsRow) {
+      const { error: insertErr } = await client.from('app_settings').insert({
+        id: 1,
+        providers: DEFAULT_PROVIDERS,
+        connection_types: DEFAULT_CONNECTION_TYPES,
+        alert_tiers: DEFAULT_ALERT_TIERS,
+      });
+      if (insertErr) throw insertErr;
     }
-    if (!Array.isArray(store.settings.connectionTypes) || store.settings.connectionTypes.length === 0) {
-      store.settings.connectionTypes = [...DEFAULT_CONNECTION_TYPES];
-      changed = true;
+
+    const { count, error: countErr } = await client.from('users').select('id', { count: 'exact', head: true });
+    if (countErr) throw countErr;
+    if (!count) {
+      const pinHash = await hashPin('2026');
+      const { error: userErr } = await client.from('users').insert({ name: 'Thanu', pin_hash: pinHash });
+      if (userErr) throw userErr;
     }
-    if (!Array.isArray(store.settings.alertTiers) || store.settings.alertTiers.length === 0) {
-      store.settings.alertTiers = DEFAULT_ALERT_TIERS.map((t) => ({ ...t }));
-      changed = true;
-    }
+
+    return { ok: true };
+  } catch (err) {
+    logError('initStore', err);
+    const message = /relation .* does not exist/i.test(err?.message || '')
+      ? 'Database tables are missing — run the SQL schema from Settings before continuing.'
+      : err?.message || 'Could not reach Supabase.';
+    return { ok: false, message };
   }
-  if (changed) saveStore(store);
-  return store;
-}
-
-// ─── App Settings: Providers, Connection Types, Alert Tiers ───────
-export function getSettings() {
-  const store = getStore();
-  return store?.settings || defaultSettings();
-}
-
-export function getProviders() {
-  return getSettings().providers;
-}
-
-export function getConnectionTypes() {
-  return getSettings().connectionTypes;
-}
-
-export function getAlertTiers() {
-  return [...getSettings().alertTiers].sort((a, b) => a.days - b.days);
-}
-
-// Overdue + the most urgent (first) alert tier — used for top-bar / sidebar counts.
-export function getUrgentConnections() {
-  const tiers = getAlertTiers();
-  const criticalDays = tiers.length ? tiers[0].days : 7;
-  return [...getOverdueConnections(), ...getAlertConnections(criticalDays)];
-}
-
-function addNamedOption(kind, name) {
-  const store = getStore();
-  if (!store) return { success: false, message: 'Store not ready' };
-  const trimmed = (name || '').trim();
-  if (!trimmed) return { success: false, message: 'Name is required' };
-  const list = store.settings[kind];
-  if (list.some((v) => v.toLowerCase() === trimmed.toLowerCase())) {
-    return { success: false, message: `"${trimmed}" already exists` };
-  }
-  list.push(trimmed);
-  saveStore(store);
-  return { success: true };
-}
-
-function renameNamedOption(kind, field, oldValue, newValue) {
-  const store = getStore();
-  if (!store) return { success: false, message: 'Store not ready' };
-  const trimmed = (newValue || '').trim();
-  if (!trimmed) return { success: false, message: 'Name is required' };
-  const list = store.settings[kind];
-  const idx = list.indexOf(oldValue);
-  if (idx === -1) return { success: false, message: 'Not found' };
-  if (trimmed !== oldValue && list.some((v) => v.toLowerCase() === trimmed.toLowerCase())) {
-    return { success: false, message: `"${trimmed}" already exists` };
-  }
-  list[idx] = trimmed;
-  store.connections.forEach((c) => {
-    if (c[field] === oldValue) c[field] = trimmed;
-  });
-  saveStore(store);
-  return { success: true };
-}
-
-function deleteNamedOption(kind, field, value) {
-  const store = getStore();
-  if (!store) return { success: false, message: 'Store not ready' };
-  const list = store.settings[kind];
-  if (list.length <= 1) return { success: false, message: 'At least one option is required' };
-  const inUse = store.connections.some((c) => c[field] === value);
-  if (inUse) return { success: false, message: `Cannot remove "${value}" — it's used by existing subscribers` };
-  const idx = list.indexOf(value);
-  if (idx === -1) return { success: false, message: 'Not found' };
-  list.splice(idx, 1);
-  saveStore(store);
-  return { success: true };
-}
-
-export function addProvider(name) {
-  return addNamedOption('providers', name);
-}
-export function renameProvider(oldName, newName) {
-  return renameNamedOption('providers', 'provider', oldName, newName);
-}
-export function deleteProvider(name) {
-  return deleteNamedOption('providers', 'provider', name);
-}
-
-export function addConnectionType(name) {
-  return addNamedOption('connectionTypes', name);
-}
-export function renameConnectionType(oldName, newName) {
-  return renameNamedOption('connectionTypes', 'connection_type', oldName, newName);
-}
-export function deleteConnectionType(name) {
-  return deleteNamedOption('connectionTypes', 'connection_type', name);
-}
-
-export function saveAlertTiers(rawTiers) {
-  const store = getStore();
-  if (!store) return { success: false, message: 'Store not ready' };
-
-  const cleaned = (rawTiers || [])
-    .map((t) => ({ id: t.id, label: (t.label || '').trim(), days: parseInt(t.days, 10) }))
-    .filter((t) => t.label && Number.isFinite(t.days) && t.days > 0)
-    .sort((a, b) => a.days - b.days)
-    .map((t, i) => ({
-      id: t.id || generateId(),
-      label: t.label,
-      days: t.days,
-      color: ALERT_COLOR_CYCLE[i % ALERT_COLOR_CYCLE.length],
-    }));
-
-  if (cleaned.length === 0) {
-    return { success: false, message: 'Add at least one alert level with a label and a positive number of days' };
-  }
-
-  store.settings.alertTiers = cleaned;
-  saveStore(store);
-  return { success: true };
 }
 
 // ─── User Operations ──────────────────────────────────────
-export function getUsers() {
-  const store = getStore();
-  return store ? store.users : [];
+export async function getUsers() {
+  try {
+    const { data, error } = await db().from('users').select('*').order('created_at', { ascending: true });
+    if (error) throw error;
+    return data || [];
+  } catch (err) {
+    logError('getUsers', err);
+    return [];
+  }
 }
 
 export async function verifyPin(userId, pin) {
-  const store = getStore();
-  if (!store) return false;
-  const user = store.users.find((u) => u.id === userId);
-  if (!user) return false;
-  const pinHash = await hashPin(pin);
-  return user.pin_hash === pinHash;
+  try {
+    const { data, error } = await db().from('users').select('pin_hash').eq('id', userId).maybeSingle();
+    if (error) throw error;
+    if (!data) return false;
+    const pinHash = await hashPin(pin);
+    return data.pin_hash === pinHash;
+  } catch (err) {
+    logError('verifyPin', err);
+    return false;
+  }
 }
 
-export function getUserById(userId) {
-  const store = getStore();
-  if (!store) return null;
-  return store.users.find((u) => u.id === userId) || null;
+export async function getUserById(userId) {
+  try {
+    const { data, error } = await db().from('users').select('*').eq('id', userId).maybeSingle();
+    if (error) throw error;
+    return data || null;
+  } catch (err) {
+    logError('getUserById', err);
+    return null;
+  }
 }
 
 export async function changePin(userId, newPin) {
-  const store = getStore();
-  if (!store) return false;
-  const user = store.users.find((u) => u.id === userId);
-  if (!user) return false;
-  user.pin_hash = await hashPin(newPin);
-  saveStore(store);
-  return true;
+  try {
+    const pinHash = await hashPin(newPin);
+    const { error } = await db().from('users').update({ pin_hash: pinHash }).eq('id', userId);
+    if (error) throw error;
+    return { success: true };
+  } catch (err) {
+    logError('changePin', err);
+    return { success: false, message: err?.message || 'Failed to update PIN' };
+  }
 }
 
 export async function addUser(name, pin) {
-  const store = getStore();
-  if (!store) return null;
-  const newUser = {
-    id: generateId(),
-    name,
-    pin_hash: await hashPin(pin),
-    created_at: new Date().toISOString(),
-  };
-  store.users.push(newUser);
-  saveStore(store);
-  return newUser;
-}
-
-export function updateUserName(userId, newName) {
-  const store = getStore();
-  if (!store) return false;
-  const user = store.users.find((u) => u.id === userId);
-  if (!user) return false;
-  user.name = newName;
-  saveStore(store);
-  return true;
-}
-
-export function deleteUser(userId) {
-  const store = getStore();
-  if (!store) return false;
-  if (store.users.length <= 1) {
-    return { success: false, message: 'Cannot delete the only remaining user.' };
+  try {
+    const pinHash = await hashPin(pin);
+    const { data, error } = await db().from('users').insert({ name, pin_hash: pinHash }).select().single();
+    if (error) throw error;
+    return { success: true, data };
+  } catch (err) {
+    logError('addUser', err);
+    return { success: false, message: err?.message || 'Failed to add user' };
   }
-  const idx = store.users.findIndex((u) => u.id === userId);
-  if (idx === -1) return { success: false, message: 'User not found' };
-  store.users.splice(idx, 1);
-  saveStore(store);
-  return { success: true };
 }
 
+export async function updateUserName(userId, newName) {
+  try {
+    const { error } = await db().from('users').update({ name: newName }).eq('id', userId);
+    if (error) throw error;
+    return { success: true };
+  } catch (err) {
+    logError('updateUserName', err);
+    return { success: false, message: err?.message || 'Failed to update name' };
+  }
+}
+
+export async function deleteUser(userId) {
+  try {
+    const { count, error: countErr } = await db().from('users').select('id', { count: 'exact', head: true });
+    if (countErr) throw countErr;
+    if (count <= 1) {
+      return { success: false, message: 'Cannot delete the only remaining user.' };
+    }
+    const { error } = await db().from('users').delete().eq('id', userId);
+    if (error) throw error;
+    return { success: true };
+  } catch (err) {
+    logError('deleteUser', err);
+    return { success: false, message: err?.message || 'Failed to remove user' };
+  }
+}
 
 // ─── Connection Operations ─────────────────────────────────
-export function getConnections() {
-  const store = getStore();
-  return store ? store.connections : [];
+export async function getConnections() {
+  try {
+    const { data, error } = await db().from('connections').select('*');
+    if (error) throw error;
+    return data || [];
+  } catch (err) {
+    logError('getConnections', err);
+    return [];
+  }
 }
 
-export function getConnectionById(id) {
-  const store = getStore();
-  if (!store) return null;
-  return store.connections.find((c) => c.id === id) || null;
+export async function getConnectionById(id) {
+  try {
+    const { data, error } = await db().from('connections').select('*').eq('id', id).maybeSingle();
+    if (error) throw error;
+    return data || null;
+  } catch (err) {
+    logError('getConnectionById', err);
+    return null;
+  }
 }
 
-export function addConnection(connection) {
-  const store = getStore();
-  if (!store) return null;
-  const newConn = {
-    id: generateId(),
-    ...connection,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  };
-  store.connections.push(newConn);
-  saveStore(store);
-  return newConn;
+export async function addConnection(connection) {
+  try {
+    const { data, error } = await db().from('connections').insert(connection).select().single();
+    if (error) throw error;
+    return { success: true, data };
+  } catch (err) {
+    logError('addConnection', err);
+    return { success: false, message: err?.message || 'Failed to add subscriber' };
+  }
 }
 
-export function updateConnection(id, updates) {
-  const store = getStore();
-  if (!store) return false;
-  const idx = store.connections.findIndex((c) => c.id === id);
-  if (idx === -1) return false;
-  store.connections[idx] = {
-    ...store.connections[idx],
-    ...updates,
-    updated_at: new Date().toISOString(),
-  };
-  saveStore(store);
-  return store.connections[idx];
+export async function updateConnection(id, updates) {
+  try {
+    const { data, error } = await db()
+      .from('connections')
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    return { success: true, data };
+  } catch (err) {
+    logError('updateConnection', err);
+    return { success: false, message: err?.message || 'Failed to update subscriber' };
+  }
 }
 
-export function deleteConnection(id) {
-  const store = getStore();
-  if (!store) return false;
-  const idx = store.connections.findIndex((c) => c.id === id);
-  if (idx === -1) return false;
-  store.connections.splice(idx, 1);
-  saveStore(store);
-  return true;
+export async function deleteConnection(id) {
+  try {
+    const { error } = await db().from('connections').delete().eq('id', id);
+    if (error) throw error;
+    return { success: true };
+  } catch (err) {
+    logError('deleteConnection', err);
+    return { success: false, message: err?.message || 'Failed to delete subscriber' };
+  }
 }
 
 // ─── Filtered / Sorted Queries ─────────────────────────────
-export function queryConnections({ search, provider, connectionType, status, sortBy = 'expiry_date', sortDir = 'asc' } = {}) {
-  let connections = getConnections();
+export async function queryConnections({ search, provider, connectionType, status, sortBy = 'expiry_date', sortDir = 'asc' } = {}) {
+  let connections = await getConnections();
 
   if (search) {
     const q = search.toLowerCase();
     connections = connections.filter(
       (c) =>
-        c.customer_name.toLowerCase().includes(q) ||
-        c.phone.toLowerCase().includes(q)
+        (c.customer_name || '').toLowerCase().includes(q) ||
+        (c.phone || '').toLowerCase().includes(q)
     );
   }
   if (provider && provider !== 'all') {
@@ -352,8 +252,8 @@ export function queryConnections({ search, provider, connectionType, status, sor
 }
 
 // ─── Dashboard Queries ─────────────────────────────────────
-export function getAlertConnections(withinDays) {
-  const connections = getConnections();
+export async function getAlertConnections(withinDays) {
+  const connections = await getConnections();
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const limit = new Date(today);
@@ -368,8 +268,8 @@ export function getAlertConnections(withinDays) {
   });
 }
 
-export function getOverdueConnections() {
-  const connections = getConnections();
+export async function getOverdueConnections() {
+  const connections = await getConnections();
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -382,8 +282,8 @@ export function getOverdueConnections() {
   });
 }
 
-export function getStatusCounts() {
-  const connections = getConnections();
+export async function getStatusCounts() {
+  const connections = await getConnections();
   const counts = {
     total: connections.length,
     Active: 0,
@@ -398,17 +298,22 @@ export function getStatusCounts() {
   return counts;
 }
 
+// Overdue + the most urgent (first) alert tier — used for top-bar / sidebar counts.
+export async function getUrgentConnections() {
+  const tiers = await getAlertTiers();
+  const criticalDays = tiers.length ? tiers[0].days : 7;
+  const [overdue, critical] = await Promise.all([getOverdueConnections(), getAlertConnections(criticalDays)]);
+  return [...overdue, ...critical];
+}
+
 // ─── Bulk Import ───────────────────────────────────────────
-export function importConnections(newItems) {
-  const store = getStore();
-  if (!store) return 0;
-  let count = 0;
-  const defaultProvider = store.settings?.providers?.[0] || 'Railwire';
-  const defaultType = store.settings?.connectionTypes?.[0] || 'Broadband';
-  for (const item of newItems) {
-    if (item.customer_name && item.expiry_date) {
-      store.connections.push({
-        id: item.id || generateId(),
+export async function importConnections(newItems) {
+  try {
+    const [defaultProvider, defaultType] = await Promise.all([getProviders(), getConnectionTypes()]).then(([p, t]) => [p[0] || 'Railwire', t[0] || 'Broadband']);
+
+    const rows = newItems
+      .filter((item) => item.customer_name && item.expiry_date)
+      .map((item) => ({
         customer_name: item.customer_name,
         phone: item.phone || '',
         provider: item.provider || defaultProvider,
@@ -417,54 +322,170 @@ export function importConnections(newItems) {
         expiry_date: item.expiry_date,
         status: item.status || 'Active',
         notes: item.notes || '',
-        created_at: item.created_at || new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      });
-      count++;
-    }
-  }
-  saveStore(store);
-  return count;
-}
+      }));
 
-// ─── Supabase Cloud Sync ───────────────────────────────────
-import { getSupabase } from './supabase.js';
+    if (rows.length === 0) return { success: true, count: 0 };
 
-export async function pullFromSupabase() {
-  const sb = getSupabase();
-  if (!sb) return { success: false, message: 'Supabase is not configured' };
-
-  try {
-    const { data: conns, error: connErr } = await sb.from('connections').select('*');
-    if (connErr) throw connErr;
-
-    const store = getStore() || { users: [], connections: [] };
-    if (conns && conns.length > 0) {
-      store.connections = conns;
-      saveStore(store);
-    }
-    return { success: true, count: conns ? conns.length : 0 };
-  } catch (err) {
-    return { success: false, message: err.message || 'Failed to sync with Supabase' };
-  }
-}
-
-export async function pushToSupabase() {
-  const sb = getSupabase();
-  if (!sb) return { success: false, message: 'Supabase is not configured' };
-
-  try {
-    const store = getStore();
-    if (!store || store.connections.length === 0) {
-      return { success: true, count: 0, message: 'No connections to push' };
-    }
-
-    const { error } = await sb.from('connections').upsert(store.connections, { onConflict: 'id' });
+    const { data, error } = await db().from('connections').insert(rows).select();
     if (error) throw error;
-
-    return { success: true, count: store.connections.length };
+    return { success: true, count: data?.length || 0 };
   } catch (err) {
-    return { success: false, message: err.message || 'Failed to push to Supabase' };
+    logError('importConnections', err);
+    return { success: false, message: err?.message || 'Import failed', count: 0 };
   }
 }
 
+// ─── App Settings: Providers, Connection Types, Alert Tiers ───────
+function defaultSettings() {
+  return {
+    providers: [...DEFAULT_PROVIDERS],
+    connectionTypes: [...DEFAULT_CONNECTION_TYPES],
+    alertTiers: DEFAULT_ALERT_TIERS.map((t) => ({ ...t })),
+  };
+}
+
+export async function getSettings() {
+  try {
+    const { data, error } = await db().from('app_settings').select('*').eq('id', 1).maybeSingle();
+    if (error) throw error;
+    if (!data) return defaultSettings();
+    return {
+      providers: data.providers?.length ? data.providers : [...DEFAULT_PROVIDERS],
+      connectionTypes: data.connection_types?.length ? data.connection_types : [...DEFAULT_CONNECTION_TYPES],
+      alertTiers: data.alert_tiers?.length ? data.alert_tiers : DEFAULT_ALERT_TIERS.map((t) => ({ ...t })),
+    };
+  } catch (err) {
+    logError('getSettings', err);
+    return defaultSettings();
+  }
+}
+
+export async function getProviders() {
+  return (await getSettings()).providers;
+}
+
+export async function getConnectionTypes() {
+  return (await getSettings()).connectionTypes;
+}
+
+export async function getAlertTiers() {
+  const tiers = (await getSettings()).alertTiers;
+  return [...tiers].sort((a, b) => a.days - b.days);
+}
+
+async function addNamedOption(column, name) {
+  try {
+    const trimmed = (name || '').trim();
+    if (!trimmed) return { success: false, message: 'Name is required' };
+    const settings = await getSettings();
+    const key = column === 'providers' ? 'providers' : 'connectionTypes';
+    const list = settings[key];
+    if (list.some((v) => v.toLowerCase() === trimmed.toLowerCase())) {
+      return { success: false, message: `"${trimmed}" already exists` };
+    }
+    const updated = [...list, trimmed];
+    const { error } = await db().from('app_settings').update({ [column]: updated }).eq('id', 1);
+    if (error) throw error;
+    return { success: true };
+  } catch (err) {
+    logError('addNamedOption', err);
+    return { success: false, message: err?.message || 'Failed to add' };
+  }
+}
+
+async function renameNamedOption(column, field, oldValue, newValue) {
+  try {
+    const trimmed = (newValue || '').trim();
+    if (!trimmed) return { success: false, message: 'Name is required' };
+    const settings = await getSettings();
+    const key = column === 'providers' ? 'providers' : 'connectionTypes';
+    const list = settings[key];
+    const idx = list.indexOf(oldValue);
+    if (idx === -1) return { success: false, message: 'Not found' };
+    if (trimmed !== oldValue && list.some((v) => v.toLowerCase() === trimmed.toLowerCase())) {
+      return { success: false, message: `"${trimmed}" already exists` };
+    }
+    const updatedList = [...list];
+    updatedList[idx] = trimmed;
+
+    const { error: settingsErr } = await db().from('app_settings').update({ [column]: updatedList }).eq('id', 1);
+    if (settingsErr) throw settingsErr;
+
+    const { error: cascadeErr } = await db().from('connections').update({ [field]: trimmed }).eq(field, oldValue);
+    if (cascadeErr) throw cascadeErr;
+
+    return { success: true };
+  } catch (err) {
+    logError('renameNamedOption', err);
+    return { success: false, message: err?.message || 'Rename failed' };
+  }
+}
+
+async function deleteNamedOption(column, field, value) {
+  try {
+    const settings = await getSettings();
+    const key = column === 'providers' ? 'providers' : 'connectionTypes';
+    const list = settings[key];
+    if (list.length <= 1) return { success: false, message: 'At least one option is required' };
+
+    const { count, error: countErr } = await db().from('connections').select('id', { count: 'exact', head: true }).eq(field, value);
+    if (countErr) throw countErr;
+    if (count > 0) return { success: false, message: `Cannot remove "${value}" — it's used by existing subscribers` };
+
+    const idx = list.indexOf(value);
+    if (idx === -1) return { success: false, message: 'Not found' };
+    const updated = list.filter((_, i) => i !== idx);
+    const { error } = await db().from('app_settings').update({ [column]: updated }).eq('id', 1);
+    if (error) throw error;
+    return { success: true };
+  } catch (err) {
+    logError('deleteNamedOption', err);
+    return { success: false, message: err?.message || 'Failed to remove' };
+  }
+}
+
+export async function addProvider(name) {
+  return addNamedOption('providers', name);
+}
+export async function renameProvider(oldName, newName) {
+  return renameNamedOption('providers', 'provider', oldName, newName);
+}
+export async function deleteProvider(name) {
+  return deleteNamedOption('providers', 'provider', name);
+}
+
+export async function addConnectionType(name) {
+  return addNamedOption('connection_types', name);
+}
+export async function renameConnectionType(oldName, newName) {
+  return renameNamedOption('connection_types', 'connection_type', oldName, newName);
+}
+export async function deleteConnectionType(name) {
+  return deleteNamedOption('connection_types', 'connection_type', name);
+}
+
+export async function saveAlertTiers(rawTiers) {
+  try {
+    const cleaned = (rawTiers || [])
+      .map((t) => ({ id: t.id, label: (t.label || '').trim(), days: parseInt(t.days, 10) }))
+      .filter((t) => t.label && Number.isFinite(t.days) && t.days > 0)
+      .sort((a, b) => a.days - b.days)
+      .map((t, i) => ({
+        id: t.id || generateId(),
+        label: t.label,
+        days: t.days,
+        color: ALERT_COLOR_CYCLE[i % ALERT_COLOR_CYCLE.length],
+      }));
+
+    if (cleaned.length === 0) {
+      return { success: false, message: 'Add at least one alert level with a label and a positive number of days' };
+    }
+
+    const { error } = await db().from('app_settings').update({ alert_tiers: cleaned }).eq('id', 1);
+    if (error) throw error;
+    return { success: true };
+  } catch (err) {
+    logError('saveAlertTiers', err);
+    return { success: false, message: err?.message || 'Failed to save alert thresholds' };
+  }
+}

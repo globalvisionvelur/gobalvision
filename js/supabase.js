@@ -1,5 +1,6 @@
 /**
- * Supabase client and sync module for GlobalVision.
+ * Supabase client for GlobalVision. Supabase is the app's only data store —
+ * there is no local fallback, so every screen depends on this being configured.
  */
 import { createClient } from '@supabase/supabase-js';
 
@@ -55,6 +56,11 @@ export function getSupabase() {
   return supabaseInstance;
 }
 
+export function isSupabaseConfigured() {
+  const config = getSupabaseConfig();
+  return Boolean(config.url && config.anonKey && config.enabled);
+}
+
 export async function testSupabaseConnection(url, anonKey) {
   try {
     const client = createClient(url, anonKey);
@@ -99,11 +105,22 @@ CREATE TABLE IF NOT EXISTS public.connections (
   updated_at TIMESTAMPTZ DEFAULT now()
 );
 
--- 3. Enable Row Level Security (RLS)
+-- 3. App Settings Table (providers, service types, alert tiers — single shared row)
+CREATE TABLE IF NOT EXISTS public.app_settings (
+  id INT PRIMARY KEY DEFAULT 1,
+  providers JSONB NOT NULL DEFAULT '["Railwire","BSNL","K-Fone","Kerala Vision"]'::jsonb,
+  connection_types JSONB NOT NULL DEFAULT '["Broadband","Cable TV"]'::jsonb,
+  alert_tiers JSONB NOT NULL DEFAULT '[{"id":"critical","label":"Critical","days":7,"color":"danger"},{"id":"medium","label":"Medium","days":30,"color":"warning"},{"id":"low","label":"Low","days":60,"color":"info"}]'::jsonb,
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  CONSTRAINT app_settings_singleton CHECK (id = 1)
+);
+
+-- 4. Enable Row Level Security (RLS)
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.connections ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
 
--- 4. Open Policies (for Anon Key access)
+-- 5. Open Policies (for Anon Key access)
 CREATE POLICY "Allow public read users" ON public.users FOR SELECT USING (true);
 CREATE POLICY "Allow public insert users" ON public.users FOR INSERT WITH CHECK (true);
 CREATE POLICY "Allow public update users" ON public.users FOR UPDATE USING (true);
@@ -113,4 +130,11 @@ CREATE POLICY "Allow public read connections" ON public.connections FOR SELECT U
 CREATE POLICY "Allow public insert connections" ON public.connections FOR INSERT WITH CHECK (true);
 CREATE POLICY "Allow public update connections" ON public.connections FOR UPDATE USING (true);
 CREATE POLICY "Allow public delete connections" ON public.connections FOR DELETE USING (true);
+
+CREATE POLICY "Allow public read app_settings" ON public.app_settings FOR SELECT USING (true);
+CREATE POLICY "Allow public insert app_settings" ON public.app_settings FOR INSERT WITH CHECK (true);
+CREATE POLICY "Allow public update app_settings" ON public.app_settings FOR UPDATE USING (true);
+
+-- 6. Seed the single settings row
+INSERT INTO public.app_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 `;

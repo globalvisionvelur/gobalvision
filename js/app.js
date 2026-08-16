@@ -6,23 +6,101 @@ import { renderLogin, getSession, clearSession, getCurrentUser } from './auth.js
 import { renderDashboard } from './dashboard.js';
 import { renderConnections, openModal } from './connections.js';
 import { renderSettings } from './settings.js';
+import { getSupabaseConfig, saveSupabaseConfig, isSupabaseConfigured, testSupabaseConnection } from './supabase.js';
 import { ICONS, showToast } from './utils.js';
 
 let currentView = 'dashboard';
 
 export async function initApp() {
-  await initStore();
+  if (!isSupabaseConfigured()) {
+    renderConnectScreen();
+    return;
+  }
+  await bootstrapAndShowLogin();
+}
+
+async function bootstrapAndShowLogin() {
+  const loginScreen = document.getElementById('login-screen');
+  loginScreen.classList.remove('hidden');
+  document.getElementById('main-app').classList.add('hidden');
+  loginScreen.innerHTML = `<div class="auth-card" style="align-items: center; justify-content: center; min-height: 320px;"><p style="color: var(--text-muted); font-size: 13px;">Connecting to Supabase…</p></div>`;
+
+  const result = await initStore();
+  if (!result.ok) {
+    renderConnectScreen(result.message);
+    return;
+  }
 
   const session = getSession();
   if (session) {
-    const user = getCurrentUser();
+    const user = await getCurrentUser();
     if (user) {
-      showMainApp(user);
+      await showMainApp(user);
       return;
     }
   }
 
   showLoginScreen();
+}
+
+function renderConnectScreen(errorMessage = '') {
+  const loginScreen = document.getElementById('login-screen');
+  document.getElementById('main-app').classList.add('hidden');
+  loginScreen.classList.remove('hidden');
+
+  const cfg = getSupabaseConfig();
+
+  loginScreen.innerHTML = `
+    <div class="auth-card" style="max-width: 420px;">
+      <div class="auth-header">
+        <div class="auth-logo-badge">
+          <span class="auth-logo-dot"></span>
+          <span class="auth-logo-text">GlobalVision</span>
+        </div>
+        <h1 class="auth-title">Connect to Supabase</h1>
+        <p class="auth-subtitle">This app stores everything in Supabase — connect your project to continue.</p>
+      </div>
+
+      <div id="connect-error" class="auth-error-msg ${errorMessage ? '' : 'hidden'}" style="text-align: left; margin-bottom: ${errorMessage ? '10px' : '0'};">${errorMessage}</div>
+
+      <form id="connect-form" style="width: 100%;" autocomplete="off">
+        <div class="form-group">
+          <label for="connect-url">Project URL</label>
+          <input type="url" id="connect-url" placeholder="https://your-project.supabase.co" value="${cfg.url || ''}" required />
+        </div>
+        <div class="form-group">
+          <label for="connect-key">Publishable / Anon API Key</label>
+          <input type="password" id="connect-key" placeholder="sb_publishable_..." value="${cfg.anonKey || ''}" required />
+        </div>
+        <button type="submit" class="btn btn-primary btn-full" id="connect-submit-btn">Connect</button>
+      </form>
+    </div>
+  `;
+
+  const errorEl = document.getElementById('connect-error');
+  const submitBtn = document.getElementById('connect-submit-btn');
+
+  document.getElementById('connect-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const url = document.getElementById('connect-url').value.trim();
+    const anonKey = document.getElementById('connect-key').value.trim();
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Connecting…';
+    errorEl.classList.add('hidden');
+
+    const test = await testSupabaseConnection(url, anonKey);
+    if (!test.success) {
+      errorEl.textContent = test.message || 'Could not connect. Check the URL and key.';
+      errorEl.classList.remove('hidden');
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Connect';
+      return;
+    }
+
+    saveSupabaseConfig({ url, anonKey, enabled: true });
+    await bootstrapAndShowLogin();
+  });
 }
 
 function showLoginScreen() {
@@ -34,14 +112,14 @@ function showLoginScreen() {
   });
 }
 
-function showMainApp(user) {
+async function showMainApp(user) {
   document.getElementById('login-screen').classList.add('hidden');
   document.getElementById('main-app').classList.remove('hidden');
 
-  renderSidebar(user);
+  await renderSidebar(user);
   renderMobileNav();
   setupTopBar();
-  navigateTo('dashboard');
+  await navigateTo('dashboard');
 }
 
 function setupTopBar() {
@@ -52,8 +130,8 @@ function setupTopBar() {
 
   const alertPill = document.getElementById('quick-alert-pill');
   if (alertPill) {
-    alertPill.onclick = () => {
-      navigateTo('connections');
+    alertPill.onclick = async () => {
+      await navigateTo('connections');
       const filterUrgency = document.getElementById('filter-urgency');
       if (filterUrgency) {
         filterUrgency.value = 'critical';
@@ -63,9 +141,9 @@ function setupTopBar() {
   }
 }
 
-function renderSidebar(user) {
+async function renderSidebar(user) {
   const sidebar = document.getElementById('sidebar');
-  const urgentCount = getUrgentConnections().length;
+  const urgentCount = (await getUrgentConnections()).length;
 
   sidebar.innerHTML = `
     <div class="sidebar-brand-box">
@@ -158,7 +236,7 @@ function renderMobileNav() {
   });
 }
 
-function navigateTo(view) {
+async function navigateTo(view) {
   currentView = view;
 
   // Update nav active states
@@ -180,25 +258,25 @@ function navigateTo(view) {
   // Render view content
   switch (view) {
     case 'dashboard':
-      renderDashboard(
+      await renderDashboard(
         () => openModal(),
         (targetId) => {
           navigateTo('connections');
         },
-        () => {
-          const user = getCurrentUser();
-          if (user) renderSidebar(user);
+        async () => {
+          const user = await getCurrentUser();
+          if (user) await renderSidebar(user);
         }
       );
       break;
     case 'connections':
-      renderConnections(() => {
-        const user = getCurrentUser();
-        if (user) renderSidebar(user);
+      await renderConnections(async () => {
+        const user = await getCurrentUser();
+        if (user) await renderSidebar(user);
       });
       break;
     case 'settings':
-      renderSettings();
+      await renderSettings();
       break;
   }
 }

@@ -1,5 +1,6 @@
 /**
- * Settings view — Profile, PIN security, Team access, and Supabase cloud sync.
+ * Settings view — Profile, PIN security, team access, providers/service types,
+ * alert thresholds, and Supabase connection status.
  */
 import {
   changePin,
@@ -8,8 +9,6 @@ import {
   getUsers,
   addUser,
   deleteUser,
-  pushToSupabase,
-  pullFromSupabase,
   getProviders,
   getConnectionTypes,
   addProvider,
@@ -20,6 +19,8 @@ import {
   deleteConnectionType,
   getAlertTiers,
   saveAlertTiers,
+  getConnections,
+  getSettings,
 } from './store.js';
 import {
   getSupabaseConfig,
@@ -43,21 +44,25 @@ function renderChipList(kind, items) {
     .join('');
 }
 
-export function renderSettings() {
+export async function renderSettings() {
   const view = document.getElementById('settings-view');
-  const user = getCurrentUser();
-  const allUsers = getUsers();
+  view.innerHTML = `<div style="padding: 60px 20px; text-align: center; color: var(--text-muted); font-size: 13px;">Loading settings…</div>`;
+
+  const [user, allUsers, providers, connectionTypes, alertTiers] = await Promise.all([
+    getCurrentUser(),
+    getUsers(),
+    getProviders(),
+    getConnectionTypes(),
+    getAlertTiers(),
+  ]);
   const sbConfig = getSupabaseConfig();
-  const providers = getProviders();
-  const connectionTypes = getConnectionTypes();
-  const alertTiers = getAlertTiers();
 
   view.innerHTML = `
     <div class="dash-header-block">
       <div class="dash-title-row">
         <div>
           <h1 class="dash-title">Settings</h1>
-          <p style="font-size: 13px; color: var(--text-muted); margin-top: 2px;">Manage your team, security PINs, and cloud backup</p>
+          <p style="font-size: 13px; color: var(--text-muted); margin-top: 2px;">Manage your team, security PINs, and connected data</p>
         </div>
       </div>
     </div>
@@ -72,7 +77,7 @@ export function renderSettings() {
         <form id="profile-form" autocomplete="off">
           <div class="form-group">
             <label for="settings-name">Display Name</label>
-            <input type="text" id="settings-name" value="${user?.name || ''}" placeholder="Your name" required />
+            <input type="text" id="settings-name" value="${escapeHtml(user?.name || '')}" placeholder="Your name" required />
           </div>
           <button type="submit" class="btn btn-primary">Save Profile</button>
         </form>
@@ -118,7 +123,7 @@ export function renderSettings() {
               <div class="team-left">
                 <span class="team-avatar">${u.name.charAt(0).toUpperCase()}</span>
                 <div>
-                  <div class="team-name">${u.name} ${u.id === user?.id ? '<span style="color: var(--accent); font-size: 11px;">(You)</span>' : ''}</div>
+                  <div class="team-name">${escapeHtml(u.name)} ${u.id === user?.id ? '<span style="color: var(--accent); font-size: 11px;">(You)</span>' : ''}</div>
                   <div style="font-size: 11px; color: var(--text-dim);">Added: ${new Date(u.created_at || Date.now()).toLocaleDateString('en-IN')}</div>
                 </div>
               </div>
@@ -202,41 +207,31 @@ export function renderSettings() {
         </form>
       </div>
 
-      <!-- 6. Supabase Cloud Sync -->
+      <!-- 6. Database Connection (direct — no manual sync) -->
       <div class="setting-box">
         <div class="setting-box-header">
           ${ICONS.database}
-          <h3>Cloud Sync (Free)</h3>
+          <h3>Database Connection</h3>
         </div>
-        <p class="setting-desc">Sync your subscriber data across computers, tabs, and phones in real time.</p>
-        
-        <form id="supabase-config-form" autocomplete="off">
-          <div class="form-group">
-            <label for="sb-url">Project URL</label>
-            <input type="url" id="sb-url" placeholder="https://your-project.supabase.co" value="${sbConfig.url || ''}" />
+        <p class="setting-desc">This app reads and writes straight to Supabase — there's no local copy to keep in sync, so changes made by any team member show up everywhere immediately.</p>
+        <div style="display: flex; flex-direction: column; gap: 8px; font-size: 12px; margin-bottom: 14px;">
+          <div style="display: flex; justify-content: space-between; gap: 12px; color: var(--text-muted);">
+            <span>Project URL</span>
+            <span class="mono" style="color: var(--text-primary); font-weight: 600; word-break: break-all; text-align: right;">${escapeHtml(sbConfig.url || '—')}</span>
           </div>
-          <div class="form-group">
-            <label for="sb-key">Anon / Public API Key</label>
-            <input type="password" id="sb-key" placeholder="eyJhbGciOiJIUzI1NiIsIn..." value="${sbConfig.anonKey || ''}" />
+          <div style="display: flex; justify-content: space-between; color: var(--text-muted);">
+            <span>Status</span>
+            <span id="db-status-indicator" style="color: var(--text-dim); font-weight: 600;">Checking…</span>
           </div>
-          <div style="display: flex; gap: 8px; margin-top: 10px;">
-            <button type="submit" class="btn btn-primary">Save Config</button>
-            <button type="button" id="sb-test-btn" class="btn btn-ghost">Test Link</button>
-            <button type="button" id="sb-sql-btn" class="btn btn-ghost">Get SQL Schema</button>
-          </div>
-        </form>
-
-        <div style="display: flex; gap: 8px; margin-top: 14px; border-top: 1px solid var(--border-subtle); padding-top: 12px;">
-          <button type="button" id="sb-push-btn" class="btn btn-ghost btn-sm">
-            ${ICONS.upload} Push Local Data
-          </button>
-          <button type="button" id="sb-pull-btn" class="btn btn-ghost btn-sm">
-            ${ICONS.download} Pull Cloud Data
-          </button>
+        </div>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          <button type="button" id="db-test-btn" class="btn btn-ghost btn-sm">Test Connection</button>
+          <button type="button" id="db-sql-btn" class="btn btn-ghost btn-sm">Get SQL Schema</button>
+          <button type="button" id="db-disconnect-btn" class="btn btn-danger btn-sm">Disconnect</button>
         </div>
       </div>
 
-      <!-- 7. Offline Data Backup -->
+      <!-- 7. Data Backup -->
       <div class="setting-box">
         <div class="setting-box-header">
           ${ICONS.download}
@@ -281,13 +276,13 @@ export function renderSettings() {
   `;
 
   // Profile Form
-  document.getElementById('profile-form').addEventListener('submit', (e) => {
+  document.getElementById('profile-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const newName = document.getElementById('settings-name').value.trim();
-    if (!newName) return;
+    if (!newName || !user) return;
 
-    if (user) {
-      updateUserName(user.id, newName);
+    const res = await updateUserName(user.id, newName);
+    if (res.success) {
       setSession({ ...user, name: newName });
       const sidebarName = document.querySelector('.user-text-name');
       if (sidebarName) sidebarName.textContent = newName;
@@ -295,6 +290,8 @@ export function renderSettings() {
       if (sidebarAvatar) sidebarAvatar.textContent = newName.charAt(0).toUpperCase();
       showToast('Profile updated', 'success');
       renderSettings();
+    } else {
+      showToast(res.message || 'Failed to update profile', 'error');
     }
   });
 
@@ -327,15 +324,15 @@ export function renderSettings() {
       return;
     }
 
-    const changed = await changePin(user.id, newPin);
-    if (changed) {
+    const res = await changePin(user.id, newPin);
+    if (res.success) {
       errorEl.classList.add('hidden');
       document.getElementById('current-pin').value = '';
       document.getElementById('new-pin').value = '';
       document.getElementById('confirm-pin').value = '';
       showToast('Security PIN successfully updated', 'success');
     } else {
-      errorEl.textContent = 'Failed to update PIN. Please try again.';
+      errorEl.textContent = res.message || 'Failed to update PIN. Please try again.';
       errorEl.classList.remove('hidden');
     }
   });
@@ -352,16 +349,20 @@ export function renderSettings() {
       return;
     }
 
-    await addUser(name, pin);
-    showToast(`"${name}" added to team`, 'success');
-    renderSettings();
+    const res = await addUser(name, pin);
+    if (res.success) {
+      showToast(`"${name}" added to team`, 'success');
+      renderSettings();
+    } else {
+      showToast(res.message || 'Failed to add team member', 'error');
+    }
   });
 
   // Delete User
   document.querySelectorAll('.user-del-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       const uId = btn.dataset.id;
-      const res = deleteUser(uId);
+      const res = await deleteUser(uId);
       if (res.success) {
         showToast('Team member removed', 'success');
         renderSettings();
@@ -379,7 +380,7 @@ export function renderSettings() {
         input.blur();
       }
     });
-    input.addEventListener('blur', () => {
+    input.addEventListener('blur', async () => {
       const container = input.closest('.chip-editable');
       const kind = container.dataset.kind;
       const oldValue = container.dataset.value;
@@ -388,7 +389,7 @@ export function renderSettings() {
         input.value = oldValue;
         return;
       }
-      const res = kind === 'provider' ? renameProvider(oldValue, newValue) : renameConnectionType(oldValue, newValue);
+      const res = kind === 'provider' ? await renameProvider(oldValue, newValue) : await renameConnectionType(oldValue, newValue);
       if (res.success) {
         showToast(`Renamed "${oldValue}" to "${newValue}"`, 'success');
         renderSettings();
@@ -400,10 +401,10 @@ export function renderSettings() {
   });
 
   document.querySelectorAll('.chip-del-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       const kind = btn.dataset.kind;
       const value = btn.dataset.value;
-      const res = kind === 'provider' ? deleteProvider(value) : deleteConnectionType(value);
+      const res = kind === 'provider' ? await deleteProvider(value) : await deleteConnectionType(value);
       if (res.success) {
         showToast(`Removed "${value}"`, 'success');
         renderSettings();
@@ -414,13 +415,13 @@ export function renderSettings() {
   });
 
   document.querySelectorAll('.chip-add-form').forEach((form) => {
-    form.addEventListener('submit', (e) => {
+    form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const kind = form.dataset.kind;
       const input = form.querySelector('input');
       const value = input.value.trim();
       if (!value) return;
-      const res = kind === 'provider' ? addProvider(value) : addConnectionType(value);
+      const res = kind === 'provider' ? await addProvider(value) : await addConnectionType(value);
       if (res.success) {
         showToast(`Added "${value}"`, 'success');
         renderSettings();
@@ -462,7 +463,7 @@ export function renderSettings() {
     bindTierRemove(row);
   });
 
-  document.getElementById('alert-tiers-form').addEventListener('submit', (e) => {
+  document.getElementById('alert-tiers-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const rows = Array.from(document.querySelectorAll('#alert-tiers-rows .tier-row'));
     const newTiers = rows.map((row) => ({
@@ -470,7 +471,7 @@ export function renderSettings() {
       label: row.querySelector('.tier-label-input').value.trim(),
       days: parseInt(row.querySelector('.tier-days-input').value, 10),
     }));
-    const res = saveAlertTiers(newTiers);
+    const res = await saveAlertTiers(newTiers);
     if (res.success) {
       showToast('Alert thresholds updated', 'success');
       renderSettings();
@@ -479,34 +480,45 @@ export function renderSettings() {
     }
   });
 
-  // Supabase Config
-  document.getElementById('supabase-config-form').addEventListener('submit', (e) => {
-    e.preventDefault();
-    const url = document.getElementById('sb-url').value.trim();
-    const anonKey = document.getElementById('sb-key').value.trim();
-
-    saveSupabaseConfig({ url, anonKey, enabled: Boolean(url && anonKey) });
-    showToast('Supabase configuration saved', 'success');
-  });
-
-  document.getElementById('sb-test-btn').addEventListener('click', async () => {
-    const url = document.getElementById('sb-url').value.trim();
-    const anonKey = document.getElementById('sb-key').value.trim();
-    if (!url || !anonKey) {
-      showToast('Please enter both Supabase URL and Anon Key', 'error');
+  // Database Connection status / actions
+  const statusEl = document.getElementById('db-status-indicator');
+  (async () => {
+    if (!sbConfig.url || !sbConfig.anonKey) {
+      statusEl.textContent = 'Not configured';
+      statusEl.style.color = 'var(--danger)';
       return;
     }
-    showToast('Testing Supabase connection...', 'warning');
-    const result = await testSupabaseConnection(url, anonKey);
+    const result = await testSupabaseConnection(sbConfig.url, sbConfig.anonKey);
+    statusEl.textContent = result.success ? 'Connected' : 'Error';
+    statusEl.style.color = result.success ? 'var(--success)' : 'var(--danger)';
+  })();
+
+  document.getElementById('db-test-btn').addEventListener('click', async () => {
+    if (!sbConfig.url || !sbConfig.anonKey) {
+      showToast('No Supabase project configured', 'error');
+      return;
+    }
+    showToast('Testing connection…', 'warning');
+    const result = await testSupabaseConnection(sbConfig.url, sbConfig.anonKey);
     if (result.success) {
       showToast('Connection verified!', 'success');
+      statusEl.textContent = 'Connected';
+      statusEl.style.color = 'var(--success)';
     } else {
       showToast(result.message, 'error');
+      statusEl.textContent = 'Error';
+      statusEl.style.color = 'var(--danger)';
     }
+  });
+
+  document.getElementById('db-disconnect-btn').addEventListener('click', () => {
+    saveSupabaseConfig({ url: '', anonKey: '', enabled: false });
+    showToast('Disconnected from Supabase', 'success');
+    window.location.reload();
   });
 
   // SQL Schema Modal
-  document.getElementById('sb-sql-btn').addEventListener('click', () => {
+  document.getElementById('db-sql-btn').addEventListener('click', () => {
     const modal = document.getElementById('sql-modal');
     modal.innerHTML = `
       <div class="modal-backdrop" id="sql-backdrop"></div>
@@ -541,35 +553,15 @@ export function renderSettings() {
     });
   });
 
-  // Push / Pull
-  document.getElementById('sb-push-btn').addEventListener('click', async () => {
-    showToast('Replicating to Supabase...', 'warning');
-    const res = await pushToSupabase();
-    if (res.success) {
-      showToast(`Pushed ${res.count} records to Supabase`, 'success');
-    } else {
-      showToast(res.message, 'error');
-    }
-  });
-
-  document.getElementById('sb-pull-btn').addEventListener('click', async () => {
-    showToast('Replicating from Supabase...', 'warning');
-    const res = await pullFromSupabase();
-    if (res.success) {
-      showToast(`Replicated ${res.count} records from Supabase`, 'success');
-    } else {
-      showToast(res.message, 'error');
-    }
-  });
-
-  // JSON Snapshot
-  document.getElementById('export-json-btn').addEventListener('click', () => {
-    const raw = localStorage.getItem('globalvision_store');
-    if (!raw) {
+  // Full Backup (live export from Supabase)
+  document.getElementById('export-json-btn').addEventListener('click', async () => {
+    const [users, connections, settings] = await Promise.all([getUsers(), getConnections(), getSettings()]);
+    if (users.length === 0 && connections.length === 0) {
       showToast('No records to export', 'error');
       return;
     }
-    downloadFile(raw, `globalvision_registry_${todayISO()}.json`, 'application/json');
-    showToast('Snapshot backup downloaded', 'success');
+    const snapshot = { users, connections, settings, exported_at: new Date().toISOString() };
+    downloadFile(JSON.stringify(snapshot, null, 2), `globalvision_registry_${todayISO()}.json`, 'application/json');
+    showToast('Backup downloaded', 'success');
   });
 }

@@ -27,15 +27,17 @@ export function clearSession() {
   localStorage.removeItem(SESSION_KEY);
 }
 
-export function getCurrentUser() {
+export async function getCurrentUser() {
   const session = getSession();
   if (!session) return null;
   return getUserById(session.userId);
 }
 
-export function renderLogin(onLoginSuccess) {
-  const users = getUsers();
+export async function renderLogin(onLoginSuccess) {
   const loginScreen = document.getElementById('login-screen');
+  loginScreen.innerHTML = `<div class="auth-card" style="align-items: center; justify-content: center; min-height: 320px;"><p style="color: var(--text-muted); font-size: 13px;">Connecting…</p></div>`;
+
+  const users = await getUsers();
   let selectedUserId = users[0]?.id || '';
   let currentPin = '';
 
@@ -155,7 +157,7 @@ export function renderLogin(onLoginSuccess) {
     try {
       const valid = await verifyPin(selectedUserId, currentPin);
       if (valid) {
-        const user = getUserById(selectedUserId);
+        const user = await getUserById(selectedUserId);
         setSession(user);
         showToast(`Authenticated as ${user.name}`, 'success');
         document.removeEventListener('keydown', keyboardHandler);

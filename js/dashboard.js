@@ -18,16 +18,17 @@ import {
   showToast,
 } from './utils.js';
 
-export function renderDashboard(onAddNew, onViewConnection, onRefresh) {
+export async function renderDashboard(onAddNew, onViewConnection, onRefresh) {
   const view = document.getElementById('dashboard-view');
+  view.innerHTML = `<div style="padding: 60px 20px; text-align: center; color: var(--text-muted); font-size: 13px;">Loading dashboard…</div>`;
 
-  const tiers = getAlertTiers(); // ascending by days, e.g. Critical(7) / Medium(30) / Low(60)
-  const overdue = getOverdueConnections();
-  const counts = getStatusCounts();
+  const tiers = await getAlertTiers(); // ascending by days, e.g. Critical(7) / Medium(30) / Low(60)
+  const overdue = await getOverdueConnections();
+  const counts = await getStatusCounts();
 
   // Bucket every connection due within the widest tier into its first-matching (most urgent) tier.
   const maxDays = tiers.length ? tiers[tiers.length - 1].days : 30;
-  const upcoming = tiers.length ? getAlertConnections(maxDays) : [];
+  const upcoming = tiers.length ? await getAlertConnections(maxDays) : [];
   const buckets = tiers.map(() => []);
   upcoming.forEach((c) => {
     const days = daysUntil(c.expiry_date);
@@ -184,13 +185,17 @@ export function renderDashboard(onAddNew, onViewConnection, onRefresh) {
 
   // Bind Quick Status updates in the queue
   view.querySelectorAll('.queue-status-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       const id = btn.dataset.id;
       const newStatus = btn.dataset.status;
-      updateConnection(id, { status: newStatus });
-      showToast(`Updated to ${newStatus}`, 'success');
-      renderDashboard(onAddNew, onViewConnection, onRefresh);
-      if (onRefresh) onRefresh();
+      const res = await updateConnection(id, { status: newStatus });
+      if (res.success) {
+        showToast(`Updated to ${newStatus}`, 'success');
+        await renderDashboard(onAddNew, onViewConnection, onRefresh);
+        if (onRefresh) onRefresh();
+      } else {
+        showToast(res.message || 'Failed to update status', 'error');
+      }
     });
   });
 }
