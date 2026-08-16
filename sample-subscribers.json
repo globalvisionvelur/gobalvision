@@ -1,0 +1,174 @@
+{
+  "connections": [
+    {
+      "customer_name": "Ravi Kumar",
+      "phone": "9847012345",
+      "provider": "Railwire",
+      "connection_type": "Broadband",
+      "connection_date": "2025-07-13",
+      "expiry_date": "2026-08-11",
+      "status": "Active",
+      "notes": "Called twice, promised payment by weekend"
+    },
+    {
+      "customer_name": "Sunitha Menon",
+      "phone": "9846098765",
+      "provider": "Kerala Vision",
+      "connection_type": "Cable TV",
+      "connection_date": "2024-06-08",
+      "expiry_date": "2026-08-15",
+      "status": "Active",
+      "notes": ""
+    },
+    {
+      "customer_name": "Anoop Pillai",
+      "phone": "9895011223",
+      "provider": "BSNL",
+      "connection_type": "Broadband",
+      "connection_date": "2025-08-17",
+      "expiry_date": "2026-08-17",
+      "status": "Active",
+      "notes": "Expires today — priority call"
+    },
+    {
+      "customer_name": "Deepa Warrier",
+      "phone": "9847123456",
+      "provider": "K-Fone",
+      "connection_type": "Broadband",
+      "connection_date": "2026-01-29",
+      "expiry_date": "2026-08-18",
+      "status": "Active",
+      "notes": ""
+    },
+    {
+      "customer_name": "Manoj Nair",
+      "phone": "9946234567",
+      "provider": "Railwire",
+      "connection_type": "Broadband",
+      "connection_date": "2026-05-19",
+      "expiry_date": "2026-08-20",
+      "status": "Active",
+      "notes": "Asked for renewal reminder call"
+    },
+    {
+      "customer_name": "Lakshmi Iyer",
+      "phone": "9895345678",
+      "provider": "Kerala Vision",
+      "connection_type": "Cable TV",
+      "connection_date": "2025-04-04",
+      "expiry_date": "2026-08-24",
+      "status": "Active",
+      "notes": ""
+    },
+    {
+      "customer_name": "Arun Raman",
+      "phone": "9847456789",
+      "provider": "BSNL",
+      "connection_type": "Cable TV",
+      "connection_date": "2024-12-25",
+      "expiry_date": "2026-08-29",
+      "status": "Active",
+      "notes": ""
+    },
+    {
+      "customer_name": "Priya Achari",
+      "phone": "9946567890",
+      "provider": "K-Fone",
+      "connection_type": "Broadband",
+      "connection_date": "2026-04-19",
+      "expiry_date": "2026-09-06",
+      "status": "Active",
+      "notes": "Wants to upgrade plan on renewal"
+    },
+    {
+      "customer_name": "Suresh Bhat",
+      "phone": "9895678901",
+      "provider": "Railwire",
+      "connection_type": "Broadband",
+      "connection_date": "2025-12-10",
+      "expiry_date": "2026-09-14",
+      "status": "Active",
+      "notes": ""
+    },
+    {
+      "customer_name": "Geetha Panicker",
+      "phone": "9847789012",
+      "provider": "Kerala Vision",
+      "connection_type": "Cable TV",
+      "connection_date": "2024-09-16",
+      "expiry_date": "2026-09-26",
+      "status": "Active",
+      "notes": ""
+    },
+    {
+      "customer_name": "Vinod Thampi",
+      "phone": "9946890123",
+      "provider": "BSNL",
+      "connection_type": "Broadband",
+      "connection_date": "2026-03-20",
+      "expiry_date": "2026-10-11",
+      "status": "Active",
+      "notes": ""
+    },
+    {
+      "customer_name": "Kavya Krishnan",
+      "phone": "9895901234",
+      "provider": "K-Fone",
+      "connection_type": "Broadband",
+      "connection_date": "2026-07-18",
+      "expiry_date": "2027-01-14",
+      "status": "Active",
+      "notes": "New connection, annual plan"
+    },
+    {
+      "customer_name": "Rajesh Varma",
+      "phone": "9847012340",
+      "provider": "Railwire",
+      "connection_type": "Broadband",
+      "connection_date": "2026-08-07",
+      "expiry_date": "2027-06-13",
+      "status": "Active",
+      "notes": ""
+    },
+    {
+      "customer_name": "Beena Chandran",
+      "phone": "9946123409",
+      "provider": "Kerala Vision",
+      "connection_type": "Cable TV",
+      "connection_date": "2024-02-29",
+      "expiry_date": "2026-08-02",
+      "status": "Disconnected",
+      "notes": "Disconnected on request, modem collected"
+    },
+    {
+      "customer_name": "Hari Das",
+      "phone": "9895234508",
+      "provider": "BSNL",
+      "connection_type": "Broadband",
+      "connection_date": "2023-11-21",
+      "expiry_date": "2026-07-08",
+      "status": "Expired",
+      "notes": "No response after multiple attempts"
+    },
+    {
+      "customer_name": "Nisha Mohan",
+      "phone": "9847345607",
+      "provider": "Railwire",
+      "connection_type": "Broadband",
+      "connection_date": "2026-06-18",
+      "expiry_date": "2026-08-22",
+      "status": "Pending Disconnection",
+      "notes": "Customer requested disconnection, pickup scheduled"
+    },
+    {
+      "customer_name": "Sajeev Kartha",
+      "phone": "9946456706",
+      "provider": "K-Fone",
+      "connection_type": "Broadband",
+      "connection_date": "2025-08-02",
+      "expiry_date": "2027-08-17",
+      "status": "Renewed",
+      "notes": "Renewed for 12 months on 2026-08-16"
+    }
+  ]
+}

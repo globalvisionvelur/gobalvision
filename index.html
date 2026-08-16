@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GlobalVision | Broadband & Cable TV Subscriber Manager</title>
+  <meta name="description" content="Track subscriber renewals, expirations, and disconnections for your broadband and cable TV business." />
+  <meta name="theme-color" content="#f6f7fb" />
+
+  <!-- Premium Typography -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- ═══ Login Screen ═══ -->
+    <div id="login-screen" class="view">
+      <!-- Rendered by auth.js -->
+    </div>
+
+    <!-- ═══ Main Application ═══ -->
+    <div id="main-app" class="hidden">
+      <!-- Sidebar (desktop) -->
+      <aside id="sidebar"></aside>
+
+      <!-- Content Area -->
+      <main id="content">
+        <!-- Top App Bar -->
+        <header id="top-bar">
+          <div class="top-bar-left">
+            <div class="network-badge">
+              <span class="live-dot"></span>
+              <span class="live-text">GlobalVision Network Active</span>
+            </div>
+          </div>
+          <div class="top-bar-right">
+            <div id="quick-alert-pill" class="quick-alert-pill hidden"></div>
+            <button id="global-add-btn" class="btn btn-sm btn-primary">
+              <span class="btn-icon">+</span>
+              <span>New Connection</span>
+            </button>
+          </div>
+        </header>
+
+        <section id="dashboard-view" class="view"></section>
+        <section id="connections-view" class="view hidden"></section>
+        <section id="settings-view" class="view hidden"></section>
+      </main>
+
+      <!-- Mobile Bottom Nav -->
+      <nav id="mobile-nav"></nav>
+    </div>
+
+    <!-- ═══ Modal Overlay ═══ -->
+    <div id="connection-modal" class="modal hidden"></div>
+
+    <!-- ═══ Toast Notifications ═══ -->
+    <div id="toast-container"></div>
+  </div>
+
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>
