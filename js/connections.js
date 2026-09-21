@@ -33,6 +33,10 @@ import {
 let currentFilters = { search: '', provider: 'all', connectionType: 'all', status: 'all', urgency: 'all' };
 let refreshDashboardCb = null;
 
+export function resetConnectionFilters() {
+  currentFilters = { search: '', provider: 'all', connectionType: 'all', status: 'all', urgency: 'all' };
+}
+
 export async function renderConnections(onRefreshDashboard) {
   refreshDashboardCb = onRefreshDashboard;
   const view = document.getElementById('connections-view');
@@ -95,6 +99,11 @@ export async function renderConnections(onRefreshDashboard) {
           <option value="all">All Statuses</option>
           ${STATUSES.map((s) => `<option value="${s}" ${currentFilters.status === s ? 'selected' : ''}>${s}</option>`).join('')}
         </select>
+        ${
+          currentFilters.search || currentFilters.provider !== 'all' || currentFilters.connectionType !== 'all' || currentFilters.status !== 'all' || currentFilters.urgency !== 'all'
+            ? `<button type="button" class="btn btn-sm btn-ghost text-danger" id="toolbar-clear-filters" title="Reset all filters">✕ Clear</button>`
+            : ''
+        }
       </div>
     </div>
 
@@ -141,6 +150,14 @@ export async function renderConnections(onRefreshDashboard) {
     currentFilters.status = e.target.value;
     renderTable();
   });
+
+  const toolbarClearBtn = document.getElementById('toolbar-clear-filters');
+  if (toolbarClearBtn) {
+    toolbarClearBtn.addEventListener('click', () => {
+      resetConnectionFilters();
+      renderConnections(refreshDashboardCb);
+    });
+  }
 
   await renderTable();
 }
@@ -269,9 +286,20 @@ async function renderTable() {
       <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 48px 20px; text-align: center; color: var(--text-muted);">
         <div style="margin-bottom: 8px; display: flex; justify-content: center; color: var(--text-dim);">${ICONS.search}</div>
         <div style="font-size: 15px; font-weight: 600; color: var(--text-primary);">No records match your criteria</div>
-        <div style="font-size: 13px; margin-top: 4px;">Try clearing filters, or add a new subscriber.</div>
+        <div style="font-size: 13px; margin-top: 4px; color: var(--text-muted);">A filter is currently hiding subscribers.</div>
+        <button type="button" class="btn btn-sm btn-primary" id="conn-clear-filters-btn" style="margin-top: 14px;">
+          Show All Subscribers
+        </button>
       </div>
     `;
+
+    const clearBtn = document.getElementById('conn-clear-filters-btn');
+    if (clearBtn) {
+      clearBtn.addEventListener('click', () => {
+        resetConnectionFilters();
+        renderConnections(refreshDashboardCb);
+      });
+    }
     return;
   }
 

@@ -5,7 +5,7 @@ import { initStore, getUrgentConnections, getAlertTiers, getMonthlyBillingSummar
 import { renderLogin, getSession, clearSession, getCurrentUser } from './auth.js';
 import { renderDashboard } from './dashboard.js';
 import { renderBillingDashboard } from './billing.js';
-import { renderConnections, openModal } from './connections.js';
+import { renderConnections, openModal, resetConnectionFilters } from './connections.js';
 import { renderLogs } from './logs.js';
 import { renderSettings } from './settings.js';
 import { getSupabaseConfig, saveSupabaseConfig, isSupabaseConfigured, testSupabaseConnection } from './supabase.js';
@@ -225,6 +225,7 @@ async function renderSidebar(user) {
   sidebar.querySelectorAll('.nav-link').forEach((link) => {
     link.addEventListener('click', (e) => {
       e.preventDefault();
+      if (link.dataset.view === 'connections') resetConnectionFilters();
       navigateTo(link.dataset.view);
     });
   });
@@ -262,6 +263,7 @@ function renderMobileNav() {
   nav.querySelectorAll('.mobile-tab-btn[data-view]').forEach((btn) => {
     btn.addEventListener('click', (e) => {
       e.preventDefault();
+      if (btn.dataset.view === 'connections') resetConnectionFilters();
       navigateTo(btn.dataset.view);
     });
   });
