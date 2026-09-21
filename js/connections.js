@@ -12,8 +12,11 @@ import {
   getProviders,
   getConnectionTypes,
   getAlertTiers,
+  getSubscriberRate,
+  setSubscriberRate,
 } from './store.js';
 import { getCurrentUser } from './auth.js';
+import { openCustomerBillingModal } from './billing.js';
 import {
   daysUntil,
   formatDate,
@@ -294,6 +297,14 @@ async function renderTable() {
   `;
 
   // Bind Table Actions
+  container.querySelectorAll('.table-bills-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      openCustomerBillingModal(btn.dataset.id, async () => {
+        if (refreshDashboardCb) refreshDashboardCb();
+      });
+    });
+  });
+
   container.querySelectorAll('.table-edit-btn').forEach((btn) => {
     btn.addEventListener('click', () => openModal(btn.dataset.id));
   });
@@ -386,6 +397,9 @@ function renderTableRow(c, tiers) {
       </td>
       <td style="text-align: right;">
         <div style="display: inline-flex; gap: 4px;">
+          <button type="button" class="icon-btn table-bills-btn" data-id="${c.id}" title="View & Manage Bills">
+            ${ICONS.receipt}
+          </button>
           <button type="button" class="icon-btn table-edit-btn" data-id="${c.id}" title="Edit">
             ${ICONS.edit}
           </button>
@@ -473,11 +487,17 @@ export async function openModal(editId = null, onSaved = null) {
             <input type="date" id="cf-expiry-date" required value="${existing?.expiry_date || ''}" />
           </div>
         </div>
-        <div class="form-group">
-          <label for="cf-status">Status</label>
-          <select id="cf-status" required>
-            ${statuses.map((s) => `<option value="${escapeHtml(s)}" ${(existing?.status || 'Active') === s ? 'selected' : ''}>${escapeHtml(s)}</option>`).join('')}
-          </select>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="cf-status">Status</label>
+            <select id="cf-status" required>
+              ${statuses.map((s) => `<option value="${escapeHtml(s)}" ${(existing?.status || 'Active') === s ? 'selected' : ''}>${escapeHtml(s)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="cf-rate">Monthly Plan Rate (₹)</label>
+            <input type="number" id="cf-rate" min="0" step="1" value="${getSubscriberRate(existing)}" placeholder="e.g. 500" />
+          </div>
         </div>
         <div class="form-group">
           <label for="cf-notes">Notes</label>
@@ -521,6 +541,11 @@ export async function openModal(editId = null, onSaved = null) {
     const actor = await getCurrentUser();
     const res = existing ? await updateConnection(editId, data, actor) : await addConnection(data);
     if (res.success) {
+      const savedId = res.data?.id || editId;
+      const rateInput = document.getElementById('cf-rate');
+      if (savedId && rateInput) {
+        setSubscriberRate(savedId, Number(rateInput.value) || 500);
+      }
       showToast(existing ? 'Subscriber record updated' : 'Subscriber added', 'success');
       closeModal();
       await renderTable();

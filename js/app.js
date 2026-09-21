@@ -1,14 +1,15 @@
 /**
  * Main application controller — SPA router, sidebar navigation, top bar controls.
  */
-import { initStore, getUrgentConnections, getAlertTiers } from './store.js';
+import { initStore, getUrgentConnections, getAlertTiers, getMonthlyBillingSummary } from './store.js';
 import { renderLogin, getSession, clearSession, getCurrentUser } from './auth.js';
 import { renderDashboard } from './dashboard.js';
+import { renderBillingDashboard } from './billing.js';
 import { renderConnections, openModal } from './connections.js';
 import { renderLogs } from './logs.js';
 import { renderSettings } from './settings.js';
 import { getSupabaseConfig, saveSupabaseConfig, isSupabaseConfigured, testSupabaseConnection } from './supabase.js';
-import { ICONS, showToast, escapeHtml } from './utils.js';
+import { ICONS, showToast, escapeHtml, currentMonthISO } from './utils.js';
 
 let currentView = 'dashboard';
 
@@ -145,11 +146,21 @@ function setupTopBar() {
       }
     };
   }
+
+  const topbarLogoutBtn = document.getElementById('topbar-logout-btn');
+  if (topbarLogoutBtn) {
+    topbarLogoutBtn.onclick = handleLogout;
+  }
 }
 
 async function renderSidebar(user) {
   const sidebar = document.getElementById('sidebar');
-  const urgentCount = (await getUrgentConnections()).length;
+  const [urgentConns, billingSummary] = await Promise.all([
+    getUrgentConnections(),
+    getMonthlyBillingSummary(currentMonthISO()),
+  ]);
+  const urgentCount = urgentConns.length;
+  const pendingBillsCount = billingSummary?.pendingCount || 0;
 
   sidebar.innerHTML = `
     <div class="sidebar-brand-box">
@@ -167,6 +178,14 @@ async function renderSidebar(user) {
           <span>Dashboard</span>
         </div>
         ${urgentCount > 0 ? `<span class="nav-badge-count">${urgentCount}</span>` : ''}
+      </a>
+
+      <a href="#" class="nav-link ${currentView === 'billing' ? 'active' : ''}" data-view="billing">
+        <div class="nav-link-left">
+          ${ICONS.receipt}
+          <span>Billing & Payments</span>
+        </div>
+        ${pendingBillsCount > 0 ? `<span class="nav-badge-count" style="background: var(--warning); color: #fff;">${pendingBillsCount}</span>` : ''}
       </a>
 
       <a href="#" class="nav-link ${currentView === 'connections' ? 'active' : ''}" data-view="connections">
@@ -222,6 +241,10 @@ function renderMobileNav() {
       ${ICONS.dashboard}
       <span>Home</span>
     </a>
+    <a href="#" class="mobile-tab-btn ${currentView === 'billing' ? 'active' : ''}" data-view="billing">
+      ${ICONS.receipt}
+      <span>Billing</span>
+    </a>
     <a href="#" class="mobile-tab-btn ${currentView === 'connections' ? 'active' : ''}" data-view="connections">
       ${ICONS.connections}
       <span>Subscribers</span>
@@ -229,10 +252,6 @@ function renderMobileNav() {
     <a href="#" class="mobile-tab-btn" id="mobile-add-btn" style="color: var(--accent);">
       ${ICONS.plus}
       <span>Add</span>
-    </a>
-    <a href="#" class="mobile-tab-btn ${currentView === 'logs' ? 'active' : ''}" data-view="logs">
-      ${ICONS.clock}
-      <span>Logs</span>
     </a>
     <a href="#" class="mobile-tab-btn ${currentView === 'settings' ? 'active' : ''}" data-view="settings">
       ${ICONS.settings}
@@ -285,6 +304,12 @@ async function navigateTo(view) {
           if (user) await renderSidebar(user);
         }
       );
+      break;
+    case 'billing':
+      await renderBillingDashboard(async () => {
+        const user = await getCurrentUser();
+        if (user) await renderSidebar(user);
+      });
       break;
     case 'connections':
       await renderConnections(async () => {

@@ -36,6 +36,43 @@ export function todayISO() {
   return `${year}-${month}-${day}`;
 }
 
+export function currentMonthISO() {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  return `${year}-${month}`;
+}
+
+export function formatMonthYear(isoMonth) {
+  if (!isoMonth) return '—';
+  const parts = isoMonth.split('-');
+  if (parts.length < 2) return isoMonth;
+  const year = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10) - 1;
+  const d = new Date(year, month, 1);
+  return d.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+}
+
+export function shiftMonth(isoMonth, delta) {
+  const current = isoMonth || currentMonthISO();
+  const parts = current.split('-');
+  let year = parseInt(parts[0], 10);
+  let month = parseInt(parts[1], 10) - 1 + delta;
+  const d = new Date(year, month, 1);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  return `${y}-${m}`;
+}
+
+export function formatCurrency(amount) {
+  const num = Number(amount) || 0;
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    maximumFractionDigits: 0,
+  }).format(num);
+}
+
 // ─── PIN Hashing ───────────────────────────────────────────
 export async function hashPin(pin) {
   const encoder = new TextEncoder();
@@ -149,6 +186,12 @@ export const ICONS = {
   upload: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>`,
   copy: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`,
   users: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
+  receipt: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1-2-1z"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="12" y2="14"/></svg>`,
+  creditCard: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>`,
+  cash: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/></svg>`,
+  history: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>`,
+  checkCircle: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`,
+  clockPending: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 15 15"/></svg>`,
 };
 
 // ─── Export / Import Helpers ───────────────────────────────
@@ -178,6 +221,26 @@ export function exportConnectionsCSV(connections) {
   ]);
   const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
   downloadFile(csvContent, `globalvision_connections_${todayISO()}.csv`, 'text/csv;charset=utf-8;');
+}
+
+export function exportMonthlyBillingCSV(records, billingMonth) {
+  const headers = ['Customer Name', 'Phone', 'Provider', 'Connection Type', 'Billing Month', 'Status', 'Bill Amount', 'Amount Paid', 'Payment Date', 'Payment Method', 'Reference ID', 'Notes'];
+  const rows = records.map(r => [
+    `"${(r.customer_name || '').replace(/"/g, '""')}"`,
+    `"${(r.phone || '').replace(/"/g, '""')}"`,
+    `"${(r.provider || '').replace(/"/g, '""')}"`,
+    `"${(r.connection_type || '').replace(/"/g, '""')}"`,
+    `"${billingMonth}"`,
+    `"${r.isPaid ? 'Paid' : 'Yet to Pay'}"`,
+    r.amount || 0,
+    r.isPaid ? (r.amount_paid || r.amount || 0) : 0,
+    `"${r.payment_date || ''}"`,
+    `"${(r.payment_method || '').replace(/"/g, '""')}"`,
+    `"${(r.reference_id || '').replace(/"/g, '""')}"`,
+    `"${(r.notes || '').replace(/"/g, '""')}"`,
+  ]);
+  const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+  downloadFile(csvContent, `globalvision_billing_${billingMonth}.csv`, 'text/csv;charset=utf-8;');
 }
 
 // ─── Toast Notifications ───────────────────────────────────

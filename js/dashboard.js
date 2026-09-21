@@ -7,6 +7,7 @@ import {
   getStatusCounts,
   getAlertTiers,
   updateConnection,
+  getMonthlyBillingSummary,
 } from './store.js';
 import { getCurrentUser } from './auth.js';
 import { openModal } from './connections.js';
@@ -18,6 +19,9 @@ import {
   escapeHtml,
   ICONS,
   showToast,
+  currentMonthISO,
+  formatMonthYear,
+  formatCurrency,
 } from './utils.js';
 
 export async function renderDashboard(onAddNew, onViewConnection, onRefresh) {
@@ -27,6 +31,9 @@ export async function renderDashboard(onAddNew, onViewConnection, onRefresh) {
   const tiers = await getAlertTiers(); // ascending by days, e.g. Critical(7) / Medium(30) / Low(60)
   const overdue = await getOverdueConnections();
   const counts = await getStatusCounts();
+  const currentMonth = currentMonthISO();
+  const billingSummary = await getMonthlyBillingSummary(currentMonth);
+  const monthDisplay = formatMonthYear(currentMonth);
 
   // Bucket every connection due within the widest tier into its first-matching (most urgent) tier.
   const maxDays = tiers.length ? tiers[tiers.length - 1].days : 30;
@@ -127,6 +134,29 @@ export async function renderDashboard(onAddNew, onViewConnection, onRefresh) {
       </div>
     </div>
 
+    <!-- Monthly Billing Highlight Strip -->
+    <div class="dash-billing-highlight-card">
+      <div class="dash-bh-left">
+        <div class="dash-bh-icon">${ICONS.receipt}</div>
+        <div>
+          <div class="dash-bh-title">${monthDisplay} Collections Status</div>
+          <div class="dash-bh-sub">
+            <strong style="color: var(--success);">${formatCurrency(billingSummary.totalCollected)}</strong> collected (${billingSummary.paidCount} paid) &bull;
+            <strong style="color: var(--warning);">${formatCurrency(billingSummary.totalPending)}</strong> yet to pay (${billingSummary.pendingCount} pending)
+          </div>
+        </div>
+      </div>
+      <div class="dash-bh-right">
+        <div class="dash-bh-progress-box">
+          <div class="dash-bh-progress-bar" style="width: ${billingSummary.collectionRate}%;"></div>
+        </div>
+        <span class="mono dash-bh-pct">${billingSummary.collectionRate}%</span>
+        <button type="button" class="btn btn-sm btn-ghost dash-bh-btn" id="dash-billing-view-btn">
+          Billing Dashboard &rarr;
+        </button>
+      </div>
+    </div>
+
     <!-- Urgent Queue Panel -->
     <div class="section-panel">
       <div class="panel-header">
@@ -179,10 +209,20 @@ export async function renderDashboard(onAddNew, onViewConnection, onRefresh) {
       .join('')}
   `;
 
-  // Bind View All button
+  // Dash view all button
   const viewAllBtn = document.getElementById('dash-view-all-btn');
   if (viewAllBtn && onViewConnection) {
-    viewAllBtn.addEventListener('click', () => onViewConnection('all'));
+    viewAllBtn.addEventListener('click', () => {
+      onViewConnection('connections');
+    });
+  }
+
+  // Dash billing highlight button
+  const dashBillingBtn = document.getElementById('dash-billing-view-btn');
+  if (dashBillingBtn && onViewConnection) {
+    dashBillingBtn.addEventListener('click', () => {
+      onViewConnection('billing');
+    });
   }
 
   // Bind Quick Status updates in the queue

@@ -129,13 +129,37 @@ CREATE TABLE IF NOT EXISTS public.connection_events (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
--- 5. Enable Row Level Security (RLS)
+-- 5. Bill Payments Table (monthly bill payment tracking per subscriber)
+CREATE TABLE IF NOT EXISTS public.bill_payments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  connection_id UUID REFERENCES public.connections(id) ON DELETE CASCADE,
+  customer_name TEXT NOT NULL,
+  phone TEXT,
+  provider TEXT,
+  connection_type TEXT,
+  billing_month TEXT NOT NULL, -- e.g. '2026-09'
+  amount NUMERIC(10, 2) NOT NULL DEFAULT 0,
+  amount_paid NUMERIC(10, 2) NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'Paid', -- 'Paid', 'Pending'
+  payment_date DATE,
+  payment_method TEXT DEFAULT 'Cash', -- 'Cash', 'UPI', 'Bank Transfer', 'Card', 'Cheque', 'Other'
+  reference_id TEXT,
+  notes TEXT,
+  recorded_by UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  recorded_by_name TEXT,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  CONSTRAINT bill_payments_conn_month UNIQUE (connection_id, billing_month)
+);
+
+-- 6. Enable Row Level Security (RLS)
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.connections ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.connection_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.bill_payments ENABLE ROW LEVEL SECURITY;
 
--- 6. Open Policies (for Anon Key access)
+-- 7. Open Policies (for Anon Key access)
 CREATE POLICY "Allow public read users" ON public.users FOR SELECT USING (true);
 CREATE POLICY "Allow public insert users" ON public.users FOR INSERT WITH CHECK (true);
 CREATE POLICY "Allow public update users" ON public.users FOR UPDATE USING (true);
@@ -153,6 +177,11 @@ CREATE POLICY "Allow public update app_settings" ON public.app_settings FOR UPDA
 CREATE POLICY "Allow public read connection_events" ON public.connection_events FOR SELECT USING (true);
 CREATE POLICY "Allow public insert connection_events" ON public.connection_events FOR INSERT WITH CHECK (true);
 
--- 7. Seed the single settings row
+CREATE POLICY "Allow public read bill_payments" ON public.bill_payments FOR SELECT USING (true);
+CREATE POLICY "Allow public insert bill_payments" ON public.bill_payments FOR INSERT WITH CHECK (true);
+CREATE POLICY "Allow public update bill_payments" ON public.bill_payments FOR UPDATE USING (true);
+CREATE POLICY "Allow public delete bill_payments" ON public.bill_payments FOR DELETE USING (true);
+
+-- 8. Seed the single settings row
 INSERT INTO public.app_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 `;

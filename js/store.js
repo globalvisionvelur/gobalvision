@@ -269,6 +269,248 @@ export async function deleteConnection(id) {
   }
 }
 
+// ─── Bill Payments Operations ──────────────────────────────
+const LOCAL_PAYMENTS_KEY = 'globalvision_bill_payments';
+const LOCAL_RATES_KEY = 'globalvision_customer_rates';
+
+function getLocalPayments() {
+  try {
+    return JSON.parse(localStorage.getItem(LOCAL_PAYMENTS_KEY) || '[]');
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalPayments(list) {
+  try {
+    localStorage.setItem(LOCAL_PAYMENTS_KEY, JSON.stringify(list));
+  } catch (e) {
+    console.error('Failed to save bill payments locally:', e);
+  }
+}
+
+export function getSubscriberRate(connection) {
+  if (!connection) return 500;
+  // Check local rate override
+  try {
+    const rates = JSON.parse(localStorage.getItem(LOCAL_RATES_KEY) || '{}');
+    if (rates[connection.id]) return Number(rates[connection.id]);
+  } catch {}
+  // Check if noted in notes: e.g. [Rate: 600] or [Plan: ₹600]
+  if (connection.notes) {
+    const m = connection.notes.match(/\[(?:Rate|Plan):\s*₹?(\d+(?:\.\d+)?)\]/i);
+    if (m && m[1]) return Number(m[1]);
+  }
+  // Default fallback rate based on connection type
+  return connection.connection_type === 'Cable TV' ? 350 : 500;
+}
+
+export function setSubscriberRate(connectionId, rate) {
+  try {
+    const rates = JSON.parse(localStorage.getItem(LOCAL_RATES_KEY) || '{}');
+    rates[connectionId] = Number(rate) || 500;
+    localStorage.setItem(LOCAL_RATES_KEY, JSON.stringify(rates));
+  } catch (e) {
+    console.error('Failed to save rate:', e);
+  }
+}
+
+export async function getBillPayments({ billingMonth, connectionId } = {}) {
+  try {
+    let query = db().from('bill_payments').select('*');
+    if (billingMonth) query = query.eq('billing_month', billingMonth);
+    if (connectionId) query = query.eq('connection_id', connectionId);
+
+    const { data, error } = await query.order('created_at', { ascending: false });
+    if (error) throw error;
+    return data || [];
+  } catch (err) {
+    logError('getBillPayments (using local cache)', err);
+    let list = getLocalPayments();
+    if (billingMonth) list = list.filter((p) => p.billing_month === billingMonth);
+    if (connectionId) list = list.filter((p) => p.connection_id === connectionId);
+    return list;
+  }
+}
+
+export async function recordBillPayment(payment, actor = null) {
+  const payload = {
+    connection_id: payment.connection_id,
+    customer_name: payment.customer_name,
+    phone: payment.phone || '',
+    provider: payment.provider || '',
+    connection_type: payment.connection_type || '',
+    billing_month: payment.billing_month,
+    amount: Number(payment.amount) || 0,
+    amount_paid: Number(payment.amount_paid ?? payment.amount) || 0,
+    status: payment.status || 'Paid',
+    payment_date: payment.payment_date || todayISO(),
+    payment_method: payment.payment_method || 'Cash',
+    reference_id: payment.reference_id || '',
+    notes: payment.notes || '',
+    recorded_by: actor?.id || null,
+    recorded_by_name: actor?.name || null,
+    updated_at: new Date().toISOString(),
+  };
+
+  // Remember the rate for this customer
+  if (payment.connection_id && payload.amount > 0) {
+    setSubscriberRate(payment.connection_id, payload.amount);
+  }
+
+  try {
+    // Check if record exists for this connection & month
+    const { data: existing } = await db()
+      .from('bill_payments')
+      .select('id')
+      .eq('connection_id', payment.connection_id)
+      .eq('billing_month', payment.billing_month)
+      .maybeSingle();
+
+    let result;
+    if (existing?.id || payment.id) {
+      const targetId = existing?.id || payment.id;
+      const { data, error } = await db()
+        .from('bill_payments')
+        .update(payload)
+        .eq('id', targetId)
+        .select()
+        .single();
+      if (error) throw error;
+      result = data;
+    } else {
+      const { data, error } = await db()
+        .from('bill_payments')
+        .insert({ ...payload, created_at: new Date().toISOString() })
+        .select()
+        .single();
+      if (error) throw error;
+      result = data;
+    }
+
+    // Mirror to local cache
+    const local = getLocalPayments();
+    const idx = local.findIndex((p) => (result.id && p.id === result.id) || (p.connection_id === payment.connection_id && p.billing_month === payment.billing_month));
+    if (idx >= 0) {
+      local[idx] = result;
+    } else {
+      local.unshift(result);
+    }
+    saveLocalPayments(local);
+
+    return { success: true, data: result };
+  } catch (err) {
+    logError('recordBillPayment (saving to local cache)', err);
+    // Fallback to local storage
+    const local = getLocalPayments();
+    const existingIdx = local.findIndex(
+      (p) => (payment.id && p.id === payment.id) || (p.connection_id === payment.connection_id && p.billing_month === payment.billing_month)
+    );
+    const item = {
+      id: payment.id || (existingIdx >= 0 ? local[existingIdx].id : generateId()),
+      ...payload,
+      created_at: existingIdx >= 0 ? local[existingIdx].created_at : new Date().toISOString(),
+    };
+    if (existingIdx >= 0) {
+      local[existingIdx] = item;
+    } else {
+      local.unshift(item);
+    }
+    saveLocalPayments(local);
+    return { success: true, data: item, isLocal: true };
+  }
+}
+
+export async function deleteBillPayment(id) {
+  try {
+    const { error } = await db().from('bill_payments').delete().eq('id', id);
+    if (error) throw error;
+  } catch (err) {
+    logError('deleteBillPayment (deleting from local cache)', err);
+  }
+  const local = getLocalPayments().filter((p) => p.id !== id);
+  saveLocalPayments(local);
+  return { success: true };
+}
+
+export async function getMonthlyBillingSummary(billingMonth) {
+  const [connections, payments] = await Promise.all([
+    getConnections(),
+    getBillPayments({ billingMonth }),
+  ]);
+
+  const paymentMap = new Map();
+  payments.forEach((p) => {
+    paymentMap.set(p.connection_id, p);
+  });
+
+  let totalExpected = 0;
+  let totalCollected = 0;
+  let paidCount = 0;
+  let pendingCount = 0;
+
+  // Active / operational subscribers (or any subscriber with a record for this month)
+  const relevantSubs = connections.filter((c) => c.status !== 'Disconnected' || paymentMap.has(c.id));
+
+  const items = relevantSubs.map((conn) => {
+    const payment = paymentMap.get(conn.id);
+    const defaultRate = getSubscriberRate(conn);
+    const billAmount = payment ? Number(payment.amount) : defaultRate;
+    const isPaid = payment && payment.status === 'Paid';
+    const amountPaid = isPaid ? Number(payment.amount_paid || payment.amount || 0) : 0;
+
+    totalExpected += billAmount;
+    if (isPaid) {
+      totalCollected += amountPaid;
+      paidCount++;
+    } else {
+      pendingCount++;
+    }
+
+    return {
+      connection_id: conn.id,
+      payment_id: payment?.id || null,
+      customer_name: conn.customer_name,
+      phone: conn.phone || '',
+      provider: conn.provider,
+      connection_type: conn.connection_type,
+      status: conn.status,
+      billing_month: billingMonth,
+      amount: billAmount,
+      amount_paid: amountPaid,
+      isPaid,
+      payment_date: payment?.payment_date || null,
+      payment_method: payment?.payment_method || null,
+      reference_id: payment?.reference_id || '',
+      notes: payment?.notes || conn.notes || '',
+    };
+  });
+
+  const totalPending = Math.max(0, totalExpected - totalCollected);
+  const collectionRate = totalExpected > 0 ? Math.round((totalCollected / totalExpected) * 100) : 0;
+
+  return {
+    billingMonth,
+    totalExpected,
+    totalCollected,
+    totalPending,
+    paidCount,
+    pendingCount,
+    totalSubscribers: items.length,
+    collectionRate,
+    items,
+  };
+}
+
+export async function getCustomerBillingHistory(connectionId) {
+  const [payments, connection] = await Promise.all([
+    getBillPayments({ connectionId }),
+    getConnectionById(connectionId),
+  ]);
+  payments.sort((a, b) => (b.billing_month || '').localeCompare(a.billing_month || ''));
+  return { connection, payments };
+}
+
 // Read paths above return empty defaults on failure so a screen can still
 // render. A backup must not: an empty file that claims success is worse than
 // no file, so this throws instead.
@@ -289,10 +531,13 @@ export async function getBackupSnapshot() {
     }
   }
 
+  const billPayments = await getBillPayments();
+
   return {
     users: users.data || [],
     connections: connections.data || [],
     settings: settings.data || null,
+    bill_payments: billPayments || [],
     exported_at: new Date().toISOString(),
   };
 }
