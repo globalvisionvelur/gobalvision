@@ -53,6 +53,16 @@ export function formatMonthYear(isoMonth) {
   return d.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
 }
 
+export function formatMonthShort(isoMonth) {
+  if (!isoMonth) return '—';
+  const parts = isoMonth.split('-');
+  if (parts.length < 2) return isoMonth;
+  const year = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10) - 1;
+  const d = new Date(year, month, 1);
+  return d.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
+}
+
 export function shiftMonth(isoMonth, delta) {
   const current = isoMonth || currentMonthISO();
   const parts = current.split('-');
@@ -157,6 +167,32 @@ export function escapeHtml(str) {
   }[ch]));
 }
 
+// ─── Add Months to Date Helper ─────────────────────────────
+export function addMonths(dateStr, count = 1) {
+  const base = dateStr ? new Date(dateStr) : new Date();
+  if (isNaN(base.getTime())) return todayISO();
+  const day = base.getDate();
+  base.setMonth(base.getMonth() + count);
+  // If month overflowed (e.g. 31st to 28th), clamp to last day of intended month
+  if (base.getDate() !== day) {
+    base.setDate(0);
+  }
+  const y = base.getFullYear();
+  const m = String(base.getMonth() + 1).padStart(2, '0');
+  const d = String(base.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+export function shiftDays(dateStr, days = 0) {
+  const base = dateStr ? new Date(dateStr) : new Date();
+  if (isNaN(base.getTime())) return todayISO();
+  base.setDate(base.getDate() + days);
+  const y = base.getFullYear();
+  const m = String(base.getMonth() + 1).padStart(2, '0');
+  const d = String(base.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 // ─── Icons (SVG) ───────────────────────────────────────────
 export const ICONS = {
   dashboard: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>`,
@@ -192,7 +228,131 @@ export const ICONS = {
   history: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>`,
   checkCircle: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`,
   clockPending: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 15 15"/></svg>`,
+  printer: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>`,
+  sun: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>`,
+  moon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`,
+  briefcase: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>`,
+  tag: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>`,
+  layers: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>`,
+  chevronRight: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>`,
+  chevronDown: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`,
+  zap: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`,
+  building: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"/><line x1="9" y1="22" x2="9" y2="2"/><line x1="9" y1="6" x2="15" y2="6"/><line x1="9" y1="10" x2="15" y2="10"/><line x1="9" y1="14" x2="15" y2="14"/><line x1="9" y1="18" x2="15" y2="18"/></svg>`,
 };
+
+// ─── Receipt & Message Formatters ──────────────────────────
+export function generateReceiptSlipHTML(payment, connection, business = {}) {
+  const bName = escapeHtml(business.name || 'GlobalVision Broadband & Cable TV');
+  const bPhone = escapeHtml(business.phone || '');
+  const bAddr = escapeHtml(business.address || '');
+  const bUpi = escapeHtml(business.upiId || '');
+  const receiptNo = (payment.reference_id || `GV-${(payment.id || '').substring(0, 8)}`).toUpperCase();
+  const cName = escapeHtml(payment.customer_name || connection?.customer_name || 'Subscriber');
+  const cPhone = escapeHtml(payment.phone || connection?.phone || '—');
+  const prov = escapeHtml(payment.provider || connection?.provider || '—');
+  const svc = escapeHtml(payment.connection_type || connection?.connection_type || '—');
+  const month = formatMonthYear(payment.billing_month);
+  const amt = formatCurrency(payment.amount);
+  const paidDate = formatDate(payment.payment_date || todayISO());
+  const mode = escapeHtml(payment.payment_method || 'Cash');
+  const notes = escapeHtml(payment.notes || '');
+
+  return `
+    <div class="gv-receipt-slip">
+      <div class="gv-receipt-header">
+        <div class="gv-receipt-brand">${bName}</div>
+        ${bAddr ? `<div class="gv-receipt-sub">${bAddr}</div>` : ''}
+        ${bPhone ? `<div class="gv-receipt-sub">Ph: ${bPhone}</div>` : ''}
+        <div class="gv-receipt-title">PAYMENT RECEIPT</div>
+      </div>
+      <div class="gv-receipt-divider"></div>
+      <div class="gv-receipt-row">
+        <span>Receipt No:</span>
+        <strong class="mono">${receiptNo}</strong>
+      </div>
+      <div class="gv-receipt-row">
+        <span>Date:</span>
+        <span>${paidDate}</span>
+      </div>
+      <div class="gv-receipt-divider"></div>
+      <div class="gv-receipt-row">
+        <span>Subscriber:</span>
+        <strong>${cName}</strong>
+      </div>
+      <div class="gv-receipt-row">
+        <span>Phone:</span>
+        <span>${cPhone}</span>
+      </div>
+      <div class="gv-receipt-row">
+        <span>Service:</span>
+        <span>${prov} (${svc})</span>
+      </div>
+      <div class="gv-receipt-row">
+        <span>Billing Month:</span>
+        <strong>${month}</strong>
+      </div>
+      <div class="gv-receipt-row">
+        <span>Payment Mode:</span>
+        <span>${mode}</span>
+      </div>
+      ${notes ? `<div class="gv-receipt-row"><span>Remarks:</span><span>${notes}</span></div>` : ''}
+      <div class="gv-receipt-divider"></div>
+      <div class="gv-receipt-row gv-receipt-total">
+        <span>AMOUNT PAID:</span>
+        <span>${amt}</span>
+      </div>
+      <div class="gv-receipt-divider"></div>
+      <div class="gv-receipt-footer">
+        <div class="gv-receipt-status-stamp">✓ RECEIVED &amp; CLEARED</div>
+        ${bUpi ? `<div class="gv-receipt-upi">UPI: ${bUpi}</div>` : ''}
+        <div class="gv-receipt-note">Thank you for your payment!</div>
+      </div>
+    </div>
+  `;
+}
+
+export function generateWhatsAppReceiptText(payment, connection, business = {}) {
+  const bName = business.name || 'GlobalVision';
+  const cName = payment.customer_name || connection?.customer_name || 'Subscriber';
+  const month = formatMonthYear(payment.billing_month);
+  const amt = formatCurrency(payment.amount);
+  const paidDate = formatDate(payment.payment_date || todayISO());
+  const mode = payment.payment_method || 'Cash';
+  const ref = payment.reference_id ? `\n*Ref/Txn:* ${payment.reference_id}` : '';
+  const prov = payment.provider || connection?.provider || '';
+  const bPhone = business.phone ? `\n*Helpline:* ${business.phone}` : '';
+
+  return `*${bName} - Payment Receipt*\n\n` +
+    `Dear *${cName}*,\n` +
+    `Thank you! We have received your payment for *${month}*.\n\n` +
+    `*Service:* ${prov}\n` +
+    `*Amount Paid:* ${amt}\n` +
+    `*Payment Mode:* ${mode}\n` +
+    `*Date:* ${paidDate}${ref}\n` +
+    `*Status:* Confirmed & Cleared\n` +
+    `${bPhone}\n\n` +
+    `_Thank you for choosing ${bName}!_`;
+}
+
+export function generateWhatsAppReminderText(connection, overdueSummary, business = {}) {
+  const bName = business.name || 'GlobalVision';
+  const cName = connection.customer_name || 'Subscriber';
+  const prov = connection.provider || '';
+  const duesCount = overdueSummary?.unpaidDuesCount || 1;
+  const totalAmt = formatCurrency(overdueSummary?.totalOverdue || 500);
+  const monthsStr = (overdueSummary?.unpaidMonths || []).map(m => m.label).join(', ');
+  const upiId = business.upiId ? `\n*Pay via UPI:* \`${business.upiId}\`` : '';
+  const bPhone = business.phone ? `\n*Support:* ${business.phone}` : '';
+
+  return `*Reminder: Bill Payment Due - ${bName}*\n\n` +
+    `Dear *${cName}*,\n` +
+    `This is a gentle reminder regarding your *${prov}* connection.\n\n` +
+    `*Outstanding Dues:* ${duesCount} Month(s) (${monthsStr})\n` +
+    `*Total Due:* ${totalAmt}\n` +
+    `${upiId}${bPhone}\n\n` +
+    `Kindly clear the pending dues to ensure uninterrupted service.\n` +
+    `_If already paid, please ignore this message._`;
+}
 
 // ─── Export / Import Helpers ───────────────────────────────
 export function downloadFile(content, filename, contentType) {
@@ -241,6 +401,24 @@ export function exportMonthlyBillingCSV(records, billingMonth) {
   ]);
   const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
   downloadFile(csvContent, `globalvision_billing_${billingMonth}.csv`, 'text/csv;charset=utf-8;');
+}
+
+export function exportOverdueLedgerCSV(records) {
+  const headers = ['Customer Name', 'Phone', 'Provider', 'Connection Type', 'Normal Monthly Bill', 'Unpaid Dues Count', 'Unpaid Months', 'Total Overdue Amount', 'Severity', 'Last Payment'];
+  const rows = records.map(r => [
+    `"${(r.customer_name || '').replace(/"/g, '""')}"`,
+    `"${(r.phone || '').replace(/"/g, '""')}"`,
+    `"${(r.provider || '').replace(/"/g, '""')}"`,
+    `"${(r.connection_type || '').replace(/"/g, '""')}"`,
+    r.normalBill || 0,
+    r.unpaidDuesCount || 0,
+    `"${(r.unpaidMonths || []).map(m => m.label).join('; ')}"`,
+    r.totalOverdue || 0,
+    `"${r.duesSeverity || ''}"`,
+    `"${r.lastPayment ? `${r.lastPayment.payment_date} (${r.lastPayment.amount})` : 'None'}"`,
+  ]);
+  const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+  downloadFile(csvContent, `globalvision_overdue_ledger_${todayISO()}.csv`, 'text/csv;charset=utf-8;');
 }
 
 // ─── Toast Notifications ───────────────────────────────────

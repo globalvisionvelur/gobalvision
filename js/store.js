@@ -4,7 +4,18 @@
  * empty defaults on error (logged to console), write functions return
  * { success, message?, data? } so callers can surface a toast on failure.
  */
-import { generateId, hashPin, todayISO, ALERT_COLOR_CYCLE, STATUSES } from './utils.js';
+import {
+  generateId,
+  hashPin,
+  todayISO,
+  currentMonthISO,
+  formatMonthYear,
+  formatMonthShort,
+  shiftMonth,
+  addMonths,
+  ALERT_COLOR_CYCLE,
+  STATUSES,
+} from './utils.js';
 import { getSupabase } from './supabase.js';
 
 const DEFAULT_PROVIDERS = ['Railwire', 'BSNL', 'K-Fone', 'Kerala Vision'];
@@ -13,6 +24,27 @@ const DEFAULT_ALERT_TIERS = [
   { id: 'critical', label: 'Critical', days: 7, color: 'danger' },
   { id: 'medium', label: 'Medium', days: 30, color: 'warning' },
   { id: 'low', label: 'Low', days: 60, color: 'info' },
+];
+
+export const LOCAL_BUSINESS_PROFILE_KEY = 'gv_business_profile';
+export const LOCAL_MASTER_PLANS_KEY = 'gv_master_plans';
+
+const DEFAULT_BUSINESS_PROFILE = {
+  name: 'GlobalVision',
+  phone: '9497801353',
+  whatsapp: '9497801353',
+  address: 'Velur, Thrissur, Kerala',
+  upiId: 'globalvision@upi',
+  footerNote: 'Broadband & Cable TV Subscriber Network',
+};
+
+const DEFAULT_MASTER_PLANS = [
+  { id: 'p1', name: 'Railwire Fiber 50 Mbps', provider: 'Railwire', connection_type: 'Broadband', rate: 499 },
+  { id: 'p2', name: 'Railwire Fiber 100 Mbps', provider: 'Railwire', connection_type: 'Broadband', rate: 799 },
+  { id: 'p3', name: 'BSNL Bharat Fiber 60M', provider: 'BSNL', connection_type: 'Broadband', rate: 599 },
+  { id: 'p4', name: 'K-Fone Standard 50M', provider: 'K-Fone', connection_type: 'Broadband', rate: 499 },
+  { id: 'p5', name: 'Kerala Vision Basic TV', provider: 'Kerala Vision', connection_type: 'Cable TV', rate: 250 },
+  { id: 'p6', name: 'Kerala Vision HD Plus', provider: 'Kerala Vision', connection_type: 'Cable TV', rate: 350 },
 ];
 
 function db() {
@@ -150,6 +182,23 @@ export async function deleteUser(userId) {
   }
 }
 
+export async function updateUser(userId, { name, pin } = {}) {
+  try {
+    const updates = {};
+    if (name && name.trim()) updates.name = name.trim();
+    if (pin && /^\d{4}$/.test(pin)) {
+      updates.pin_hash = await hashPin(pin);
+    }
+    if (Object.keys(updates).length === 0) return { success: true };
+    const { error } = await db().from('users').update(updates).eq('id', userId);
+    if (error) throw error;
+    return { success: true };
+  } catch (err) {
+    logError('updateUser', err);
+    return { success: false, message: err?.message || 'Failed to update user' };
+  }
+}
+
 // ─── Connection Operations ─────────────────────────────────
 export async function getConnections() {
   try {
@@ -269,6 +318,37 @@ export async function deleteConnection(id) {
   }
 }
 
+export async function quickRenewConnection(id, months = 1, actor = null) {
+  try {
+    const conn = await getConnectionById(id);
+    if (!conn) return { success: false, message: 'Subscriber not found' };
+
+    const today = todayISO();
+    const baseDate = conn.expiry_date && conn.expiry_date > today ? conn.expiry_date : today;
+    const newExpiry = addMonths(baseDate, months);
+
+    const updates = {
+      expiry_date: newExpiry,
+      status: 'Active',
+    };
+
+    return await updateConnection(id, updates, actor);
+  } catch (err) {
+    logError('quickRenewConnection', err);
+    return { success: false, message: err?.message || 'Quick renewal failed' };
+  }
+}
+
+export async function bulkUpdateConnections(ids = [], updates = {}, actor = null) {
+  if (!ids || ids.length === 0) return { success: true, count: 0 };
+  let successCount = 0;
+  for (const id of ids) {
+    const res = await updateConnection(id, updates, actor);
+    if (res.success) successCount++;
+  }
+  return { success: true, count: successCount };
+}
+
 // ─── Bill Payments Operations ──────────────────────────────
 const LOCAL_PAYMENTS_KEY = 'globalvision_bill_payments';
 const LOCAL_RATES_KEY = 'globalvision_customer_rates';
@@ -313,6 +393,26 @@ export function setSubscriberRate(connectionId, rate) {
   } catch (e) {
     console.error('Failed to save rate:', e);
   }
+}
+
+export async function updateSubscriberRate(connectionId, newRate, actor = null) {
+  const numericRate = Math.max(0, Number(newRate) || 0);
+  setSubscriberRate(connectionId, numericRate);
+  try {
+    const conn = await getConnectionById(connectionId);
+    if (conn) {
+      let notes = conn.notes || '';
+      if (/\[(?:Rate|Plan):\s*₹?\d+(?:\.\d+)?\]/i.test(notes)) {
+        notes = notes.replace(/\[(?:Rate|Plan):\s*₹?\d+(?:\.\d+)?\]/i, `[Rate: ₹${numericRate}]`);
+      } else {
+        notes = notes ? `${notes.trim()} [Rate: ₹${numericRate}]` : `[Rate: ₹${numericRate}]`;
+      }
+      await updateConnection(connectionId, { notes }, actor);
+    }
+  } catch (err) {
+    logError('updateSubscriberRate', err);
+  }
+  return { success: true, rate: numericRate };
 }
 
 export async function getBillPayments({ billingMonth, connectionId } = {}) {
@@ -433,15 +533,338 @@ export async function deleteBillPayment(id) {
   return { success: true };
 }
 
+export async function getDailyCollectionSummary(dateStr = todayISO()) {
+  try {
+    let payments = [];
+    try {
+      const { data, error } = await db()
+        .from('bill_payments')
+        .select('*')
+        .eq('payment_date', dateStr)
+        .eq('status', 'Paid');
+      if (!error && data) {
+        payments = data;
+      }
+    } catch {}
+
+    // Fallback & merge with local storage payments
+    const local = getLocalPayments().filter(
+      (p) => p.payment_date === dateStr && p.status === 'Paid'
+    );
+    const seen = new Set(payments.map((p) => p.id));
+    for (const lp of local) {
+      if (!seen.has(lp.id)) payments.push(lp);
+    }
+
+    let totalAmount = 0;
+    let cashAmount = 0;
+    let upiAmount = 0;
+    let bankAmount = 0;
+    let otherAmount = 0;
+
+    for (const p of payments) {
+      const amt = Number(p.amount_paid ?? p.amount) || 0;
+      totalAmount += amt;
+      const method = (p.payment_method || 'Cash').toLowerCase();
+      if (method.includes('cash')) {
+        cashAmount += amt;
+      } else if (method.includes('upi') || method.includes('gpay') || method.includes('phonepe') || method.includes('paytm')) {
+        upiAmount += amt;
+      } else if (method.includes('bank') || method.includes('transfer') || method.includes('neft')) {
+        bankAmount += amt;
+      } else {
+        otherAmount += amt;
+      }
+    }
+
+    return {
+      date: dateStr,
+      totalAmount,
+      cashAmount,
+      upiAmount,
+      bankAmount,
+      otherAmount,
+      count: payments.length,
+      payments,
+    };
+  } catch (err) {
+    logError('getDailyCollectionSummary', err);
+    return {
+      date: dateStr,
+      totalAmount: 0,
+      cashAmount: 0,
+      upiAmount: 0,
+      bankAmount: 0,
+      otherAmount: 0,
+      count: 0,
+      payments: [],
+    };
+  }
+}
+
+// Helper: returns array of months between start and end (inclusive)
+function getMonthsBetween(startMonth, endMonth) {
+  const months = [];
+  let cur = startMonth;
+  while (cur <= endMonth) {
+    months.push(cur);
+    cur = shiftMonth(cur, 1);
+    if (months.length > 48) break; // safety ceiling
+  }
+  return months;
+}
+
+/**
+ * Detailed multi-month billing & overdue tracker for all subscribers.
+ * Evaluates normal bill, unpaid months breakdown, number of dues,
+ * and cumulative overdue balance per subscriber and network-wide.
+ */
+export async function getAllSubscribersOverdueLedger({
+  lookbackMonths = 6, // 3, 6, 12, or 0 (since connection start)
+} = {}) {
+  const [connections, allPayments] = await Promise.all([
+    getConnections(),
+    getBillPayments(),
+  ]);
+
+  const currentMonth = currentMonthISO();
+
+  // Map: connection_id -> Map of billing_month -> payment
+  const paymentsByConn = new Map();
+  allPayments.forEach((p) => {
+    if (!paymentsByConn.has(p.connection_id)) {
+      paymentsByConn.set(p.connection_id, new Map());
+    }
+    paymentsByConn.get(p.connection_id).set(p.billing_month, p);
+  });
+
+  // Filter to active or relevant subscribers (exclude Disconnected unless they have records/dues)
+  const relevantSubs = connections.filter(
+    (c) => c.status !== 'Disconnected' || paymentsByConn.has(c.id)
+  );
+
+  let totalNetworkOverdue = 0;
+  let totalSubscribersWithDues = 0;
+  let criticalCount = 0; // 3+ dues
+  let warningCount = 0; // 1-2 past overdue dues
+  let currentDueOnlyCount = 0; // only current month due
+  let clearedCount = 0; // 0 dues
+  let totalMonthlyRunRate = 0;
+
+  const items = relevantSubs.map((conn) => {
+    const normalBill = getSubscriberRate(conn);
+    totalMonthlyRunRate += normalBill;
+
+    const connPaymentsMap = paymentsByConn.get(conn.id) || new Map();
+
+    // Determine starting month for this subscriber
+    let connStartMonth = conn.connection_date
+      ? conn.connection_date.slice(0, 7)
+      : conn.created_at
+      ? conn.created_at.slice(0, 7)
+      : shiftMonth(currentMonth, -5);
+
+    if (connStartMonth > currentMonth) {
+      connStartMonth = currentMonth;
+    }
+
+    let evalStartMonth = connStartMonth;
+    if (lookbackMonths > 0) {
+      const earliestLookback = shiftMonth(currentMonth, -(lookbackMonths - 1));
+      if (evalStartMonth < earliestLookback) {
+        evalStartMonth = earliestLookback;
+      }
+    } else {
+      const max24 = shiftMonth(currentMonth, -23);
+      if (evalStartMonth < max24) evalStartMonth = max24;
+    }
+
+    // Build unique sorted list of evaluated months
+    const evaluatedMonthsSet = new Set(getMonthsBetween(evalStartMonth, currentMonth));
+    connPaymentsMap.forEach((_, m) => {
+      if (m <= currentMonth && m >= shiftMonth(currentMonth, -23)) {
+        evaluatedMonthsSet.add(m);
+      }
+    });
+
+    const evaluatedMonths = Array.from(evaluatedMonthsSet).sort();
+
+    const unpaidMonths = [];
+    let paidMonthsCount = 0;
+    let subscriberOverdue = 0;
+    let mostRecentPayment = null;
+
+    evaluatedMonths.forEach((m) => {
+      const payment = connPaymentsMap.get(m);
+      const isPaid = payment && payment.status === 'Paid';
+      const isCurrentMonth = m === currentMonth;
+      const isPastMonth = m < currentMonth;
+
+      if (isPaid) {
+        paidMonthsCount++;
+        if (
+          !mostRecentPayment ||
+          (payment.payment_date &&
+            (!mostRecentPayment.payment_date || payment.payment_date > mostRecentPayment.payment_date))
+        ) {
+          mostRecentPayment = payment;
+        }
+      } else {
+        const monthAmount = payment ? Number(payment.amount) : normalBill;
+        const amountPaid = payment ? Number(payment.amount_paid || 0) : 0;
+        const outstanding = Math.max(0, monthAmount - amountPaid);
+
+        subscriberOverdue += outstanding;
+        unpaidMonths.push({
+          month: m,
+          label: formatMonthYear(m),
+          shortLabel: formatMonthShort(m),
+          amount: monthAmount,
+          amountPaid,
+          outstanding,
+          isCurrentMonth,
+          isOverdue: isPastMonth,
+          paymentId: payment?.id || null,
+        });
+      }
+    });
+
+    const unpaidDuesCount = unpaidMonths.length;
+    totalNetworkOverdue += subscriberOverdue;
+
+    let duesSeverity = 'cleared';
+    if (unpaidDuesCount > 0) {
+      totalSubscribersWithDues++;
+      const pastOverdueCount = unpaidMonths.filter((m) => m.isOverdue).length;
+      if (unpaidDuesCount >= 3 || pastOverdueCount >= 2) {
+        duesSeverity = 'critical';
+        criticalCount++;
+      } else if (pastOverdueCount >= 1) {
+        duesSeverity = 'warning';
+        warningCount++;
+      } else {
+        duesSeverity = 'current';
+        currentDueOnlyCount++;
+      }
+    } else {
+      clearedCount++;
+    }
+
+    return {
+      connection_id: conn.id,
+      customer_name: conn.customer_name,
+      phone: conn.phone || '',
+      provider: conn.provider,
+      connection_type: conn.connection_type,
+      status: conn.status,
+      normalBill,
+      unpaidMonths,
+      unpaidDuesCount,
+      totalOverdue: subscriberOverdue,
+      paidMonthsCount,
+      duesSeverity,
+      lastPayment: mostRecentPayment,
+      evaluatedMonthsCount: evaluatedMonths.length,
+      oldestUnpaidMonth: unpaidMonths[0] || null,
+      notes: conn.notes || '',
+    };
+  });
+
+  const totalSubscribers = relevantSubs.length;
+  const clearedRate = totalSubscribers > 0 ? Math.round((clearedCount / totalSubscribers) * 100) : 100;
+
+  return {
+    items,
+    totalNetworkOverdue,
+    totalSubscribersWithDues,
+    criticalCount,
+    warningCount,
+    currentDueOnlyCount,
+    clearedCount,
+    totalMonthlyRunRate,
+    totalSubscribers,
+    clearedRate,
+    currentMonth,
+    lookbackMonths,
+  };
+}
+
+/**
+ * Bulk / multi-month settlement for a subscriber's unpaid dues.
+ * Marks specified months as paid and reduces the customer's outstanding balance.
+ */
+export async function settleMultipleDues(
+  {
+    connectionId,
+    customerName,
+    phone = '',
+    provider = '',
+    connectionType = '',
+    months = [], // array of month ISO strings e.g. ['2026-07', '2026-08'] or objects { month, amount }
+    paymentDate = todayISO(),
+    paymentMethod = 'Cash',
+    referenceId = '',
+    notes = '',
+  } = {},
+  actor = null
+) {
+  if (!connectionId) return { success: false, message: 'Connection ID is required' };
+  if (!months || months.length === 0) {
+    return { success: false, message: 'No billing months selected to settle' };
+  }
+
+  const conn = await getConnectionById(connectionId);
+  const defaultRate = conn ? getSubscriberRate(conn) : 500;
+
+  const results = [];
+  for (const item of months) {
+    const month = typeof item === 'string' ? item : item.month;
+    const amount = typeof item === 'object' && item.amount ? Number(item.amount) : defaultRate;
+
+    const res = await recordBillPayment(
+      {
+        connection_id: connectionId,
+        customer_name: customerName || conn?.customer_name || 'Subscriber',
+        phone: phone || conn?.phone || '',
+        provider: provider || conn?.provider || '',
+        connection_type: connectionType || conn?.connection_type || '',
+        billing_month: month,
+        amount,
+        amount_paid: amount,
+        status: 'Paid',
+        payment_date: paymentDate,
+        payment_method: paymentMethod,
+        reference_id: referenceId,
+        notes: notes ? `${notes}` : 'Settled via Overdue Tracker',
+      },
+      actor
+    );
+    results.push(res);
+  }
+
+  const allSuccess = results.every((r) => r.success);
+  return {
+    success: allSuccess,
+    count: results.length,
+    results,
+  };
+}
+
 export async function getMonthlyBillingSummary(billingMonth) {
-  const [connections, payments] = await Promise.all([
+  const [connections, payments, overdueLedger] = await Promise.all([
     getConnections(),
     getBillPayments({ billingMonth }),
+    getAllSubscribersOverdueLedger({ lookbackMonths: 6 }),
   ]);
 
   const paymentMap = new Map();
   payments.forEach((p) => {
     paymentMap.set(p.connection_id, p);
+  });
+
+  const overdueMap = new Map();
+  overdueLedger.items.forEach((item) => {
+    overdueMap.set(item.connection_id, item);
   });
 
   let totalExpected = 0;
@@ -454,7 +877,8 @@ export async function getMonthlyBillingSummary(billingMonth) {
 
   const items = relevantSubs.map((conn) => {
     const payment = paymentMap.get(conn.id);
-    const defaultRate = getSubscriberRate(conn);
+    const overdueInfo = overdueMap.get(conn.id);
+    const defaultRate = overdueInfo?.normalBill ?? getSubscriberRate(conn);
     const billAmount = payment ? Number(payment.amount) : defaultRate;
     const isPaid = payment && payment.status === 'Paid';
     const amountPaid = isPaid ? Number(payment.amount_paid || payment.amount || 0) : 0;
@@ -467,6 +891,10 @@ export async function getMonthlyBillingSummary(billingMonth) {
       pendingCount++;
     }
 
+    // Historical dues prior to this month
+    const priorUnpaidMonths = (overdueInfo?.unpaidMonths || []).filter((m) => m.month < billingMonth);
+    const priorOverdueAmount = priorUnpaidMonths.reduce((s, m) => s + (m.outstanding || m.amount), 0);
+
     return {
       connection_id: conn.id,
       payment_id: payment?.id || null,
@@ -476,6 +904,7 @@ export async function getMonthlyBillingSummary(billingMonth) {
       connection_type: conn.connection_type,
       status: conn.status,
       billing_month: billingMonth,
+      normalBill: defaultRate,
       amount: billAmount,
       amount_paid: amountPaid,
       isPaid,
@@ -483,6 +912,14 @@ export async function getMonthlyBillingSummary(billingMonth) {
       payment_method: payment?.payment_method || null,
       reference_id: payment?.reference_id || '',
       notes: payment?.notes || conn.notes || '',
+      // Detailed overdue context
+      priorUnpaidMonths,
+      priorOverdueCount: priorUnpaidMonths.length,
+      priorOverdueAmount,
+      totalSubscriberOverdue: overdueInfo?.totalOverdue || (isPaid ? 0 : billAmount),
+      totalUnpaidDuesCount: overdueInfo?.unpaidDuesCount || (isPaid ? 0 : 1),
+      allUnpaidMonths: overdueInfo?.unpaidMonths || [],
+      duesSeverity: overdueInfo?.duesSeverity || (isPaid ? 'cleared' : 'current'),
     };
   });
 
@@ -499,16 +936,36 @@ export async function getMonthlyBillingSummary(billingMonth) {
     totalSubscribers: items.length,
     collectionRate,
     items,
+    networkOverdueSummary: {
+      totalNetworkOverdue: overdueLedger.totalNetworkOverdue,
+      totalSubscribersWithDues: overdueLedger.totalSubscribersWithDues,
+      criticalCount: overdueLedger.criticalCount,
+      warningCount: overdueLedger.warningCount,
+    },
   };
 }
 
-export async function getCustomerBillingHistory(connectionId) {
-  const [payments, connection] = await Promise.all([
+export async function getCustomerBillingHistory(connectionId, { lookbackMonths = 12 } = {}) {
+  const [payments, connection, overdueLedger] = await Promise.all([
     getBillPayments({ connectionId }),
     getConnectionById(connectionId),
+    getAllSubscribersOverdueLedger({ lookbackMonths }),
   ]);
   payments.sort((a, b) => (b.billing_month || '').localeCompare(a.billing_month || ''));
-  return { connection, payments };
+
+  const ledgerItem = overdueLedger.items.find((item) => item.connection_id === connectionId);
+
+  return {
+    connection,
+    payments,
+    normalBill: ledgerItem?.normalBill ?? (connection ? getSubscriberRate(connection) : 500),
+    unpaidMonths: ledgerItem?.unpaidMonths || [],
+    unpaidDuesCount: ledgerItem?.unpaidDuesCount || 0,
+    totalOverdue: ledgerItem?.totalOverdue || 0,
+    duesSeverity: ledgerItem?.duesSeverity || 'cleared',
+    paidMonthsCount: ledgerItem?.paidMonthsCount || 0,
+    lastPayment: ledgerItem?.lastPayment || null,
+  };
 }
 
 // Read paths above return empty defaults on failure so a screen can still
@@ -833,4 +1290,67 @@ export async function saveAlertTiers(rawTiers) {
     logError('saveAlertTiers', err);
     return { success: false, message: err?.message || 'Failed to save alert thresholds' };
   }
+}
+
+// ─── Business Profile Operations ───────────────────────────
+export function getBusinessProfile() {
+  try {
+    const raw = localStorage.getItem(LOCAL_BUSINESS_PROFILE_KEY);
+    if (raw) return { ...DEFAULT_BUSINESS_PROFILE, ...JSON.parse(raw) };
+  } catch {}
+  return { ...DEFAULT_BUSINESS_PROFILE };
+}
+
+export function saveBusinessProfile(profile) {
+  try {
+    const updated = { ...getBusinessProfile(), ...(profile || {}) };
+    localStorage.setItem(LOCAL_BUSINESS_PROFILE_KEY, JSON.stringify(updated));
+    return { success: true, data: updated };
+  } catch (err) {
+    logError('saveBusinessProfile', err);
+    return { success: false, message: err?.message || 'Failed to save business profile' };
+  }
+}
+
+// ─── Master Plans & Packages Operations ────────────────────
+export function getMasterPlans() {
+  try {
+    const raw = localStorage.getItem(LOCAL_MASTER_PLANS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch {}
+  return [...DEFAULT_MASTER_PLANS];
+}
+
+export function saveMasterPlans(plans) {
+  try {
+    localStorage.setItem(LOCAL_MASTER_PLANS_KEY, JSON.stringify(plans || []));
+    return { success: true };
+  } catch (err) {
+    logError('saveMasterPlans', err);
+    return { success: false, message: err?.message || 'Failed to save plans' };
+  }
+}
+
+export function addMasterPlan(plan) {
+  const plans = getMasterPlans();
+  const newPlan = {
+    id: plan.id || generateId(),
+    name: (plan.name || '').trim(),
+    provider: (plan.provider || '').trim(),
+    connection_type: (plan.connection_type || 'Broadband').trim(),
+    rate: Number(plan.rate) || 500,
+  };
+  if (!newPlan.name) return { success: false, message: 'Plan name is required' };
+  plans.push(newPlan);
+  saveMasterPlans(plans);
+  return { success: true, data: newPlan };
+}
+
+export function deleteMasterPlan(id) {
+  const plans = getMasterPlans().filter((p) => p.id !== id);
+  saveMasterPlans(plans);
+  return { success: true };
 }

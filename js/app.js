@@ -1,19 +1,54 @@
-/**
- * Main application controller — SPA router, sidebar navigation, top bar controls.
- */
-import { initStore, getUrgentConnections, getAlertTiers, getMonthlyBillingSummary } from './store.js';
+import {
+  initStore,
+  getUrgentConnections,
+  getAlertTiers,
+  getMonthlyBillingSummary,
+  getConnections,
+} from './store.js';
 import { renderLogin, getSession, clearSession, getCurrentUser } from './auth.js';
 import { renderDashboard } from './dashboard.js';
-import { renderBillingDashboard } from './billing.js';
-import { renderConnections, openModal, resetConnectionFilters } from './connections.js';
+import { renderBillingDashboard, openRecordPaymentModal } from './billing.js';
+import {
+  renderConnections,
+  openModal,
+  resetConnectionFilters,
+  openCustomerDrawer,
+} from './connections.js';
 import { renderLogs } from './logs.js';
 import { renderSettings } from './settings.js';
-import { getSupabaseConfig, saveSupabaseConfig, isSupabaseConfigured, testSupabaseConnection } from './supabase.js';
-import { ICONS, showToast, escapeHtml, currentMonthISO } from './utils.js';
+import {
+  getSupabaseConfig,
+  saveSupabaseConfig,
+  isSupabaseConfigured,
+  testSupabaseConnection,
+} from './supabase.js';
+import { ICONS, showToast, escapeHtml, currentMonthISO, formatDate } from './utils.js';
 
 let currentView = 'dashboard';
 
+// Theme Controller
+function initTheme() {
+  const savedTheme = localStorage.getItem('gv_theme') || 'dark';
+  setTheme(savedTheme);
+}
+
+function setTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem('gv_theme', theme);
+  const themeBtn = document.getElementById('theme-toggle-btn');
+  if (themeBtn) {
+    themeBtn.innerHTML = theme === 'dark' ? ICONS.sun : ICONS.moon;
+    themeBtn.title = theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode';
+  }
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme') || 'dark';
+  setTheme(current === 'dark' ? 'light' : 'dark');
+}
+
 export async function initApp() {
+  initTheme();
   if (!isSupabaseConfigured()) {
     renderConnectScreen();
     return;
@@ -127,17 +162,23 @@ async function showMainApp(user) {
 function setupTopBar() {
   const globalAddBtn = document.getElementById('global-add-btn');
   if (globalAddBtn) {
-    // Refresh whatever view we're on — adding from the Dashboard would otherwise
-    // leave its counts and queue stale.
     globalAddBtn.onclick = () => openModal(null, () => navigateTo(currentView));
   }
+
+  const themeBtn = document.getElementById('theme-toggle-btn');
+  if (themeBtn) {
+    const current = document.documentElement.getAttribute('data-theme') || 'dark';
+    themeBtn.innerHTML = current === 'dark' ? ICONS.sun : ICONS.moon;
+    themeBtn.title = current === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode';
+    themeBtn.onclick = toggleTheme;
+  }
+
+  setupGlobalSearch();
 
   const alertPill = document.getElementById('quick-alert-pill');
   if (alertPill) {
     alertPill.onclick = async () => {
       await navigateTo('connections');
-      // Tier ids are user data, not constants — resolve the most urgent one
-      // rather than assuming a tier still has the seeded id 'critical'.
       const tiers = await getAlertTiers();
       const filterUrgency = document.getElementById('filter-urgency');
       if (filterUrgency && tiers.length) {
@@ -332,6 +373,144 @@ function handleLogout() {
   clearSession();
   showToast('Logged out', 'success');
   showLoginScreen();
+}
+
+// ═════════════════════════════════════════════════════════════
+// GLOBAL QUICK SEARCH CONTROLLER (Cmd+K / /)
+// ═════════════════════════════════════════════════════════════
+function setupGlobalSearch() {
+  const searchBtn = document.getElementById('top-search-btn');
+  if (searchBtn) {
+    searchBtn.onclick = () => openQuickSearchModal();
+  }
+
+  window.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      e.preventDefault();
+      openQuickSearchModal();
+    } else if (e.key === '/' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) {
+      e.preventDefault();
+      openQuickSearchModal();
+    } else if (e.key === 'Escape') {
+      closeQuickSearchModal();
+    }
+  });
+}
+
+async function openQuickSearchModal() {
+  const modal = document.getElementById('quick-search-modal');
+  if (!modal) return;
+
+  modal.innerHTML = `
+    <div class="modal-backdrop" id="qs-backdrop"></div>
+    <div class="modal-content quick-search-palette" style="max-width: 580px; padding: 0; overflow: hidden; border-radius: var(--radius-lg);">
+      <div class="qs-input-wrap" style="display: flex; align-items: center; gap: 10px; padding: 14px 18px; border-bottom: 1px solid var(--border-subtle); background: var(--bg-surface);">
+        <span style="color: var(--text-muted);">${ICONS.search}</span>
+        <input type="text" id="qs-input" placeholder="Search by name, phone, box no, address, notes..." style="border: none; outline: none; background: transparent; width: 100%; font-size: 15px; color: var(--text-primary); font-family: inherit;" autofocus />
+        <kbd class="search-kbd-hint" style="font-size: 11px;">ESC</kbd>
+      </div>
+      <div id="qs-results" class="qs-results-container" style="max-height: 380px; overflow-y: auto; padding: 8px;">
+        <div style="padding: 24px; text-align: center; color: var(--text-muted); font-size: 13px;">Type to search subscribers…</div>
+      </div>
+    </div>
+  `;
+
+  modal.classList.remove('hidden');
+  const input = document.getElementById('qs-input');
+  if (input) input.focus();
+
+  document.getElementById('qs-backdrop').onclick = closeQuickSearchModal;
+
+  const allConnections = await getConnections();
+
+  input.addEventListener('input', (e) => {
+    const q = e.target.value.trim().toLowerCase();
+    const resultsEl = document.getElementById('qs-results');
+    if (!q) {
+      resultsEl.innerHTML = `<div style="padding: 24px; text-align: center; color: var(--text-muted); font-size: 13px;">Type to search subscribers…</div>`;
+      return;
+    }
+
+    const matches = allConnections
+      .filter((c) => {
+        const name = (c.customer_name || '').toLowerCase();
+        const phone = (c.phone || '').toLowerCase();
+        const prov = (c.provider || '').toLowerCase();
+        const notes = (c.notes || '').toLowerCase();
+        return name.includes(q) || phone.includes(q) || prov.includes(q) || notes.includes(q);
+      })
+      .slice(0, 8);
+
+    if (matches.length === 0) {
+      resultsEl.innerHTML = `<div style="padding: 24px; text-align: center; color: var(--text-muted); font-size: 13px;">No subscribers found matching "${escapeHtml(q)}"</div>`;
+      return;
+    }
+
+    resultsEl.innerHTML = matches
+      .map(
+        (c) => `
+      <div class="qs-result-item" data-id="${c.id}" style="display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; border-radius: var(--radius-sm); cursor: pointer; transition: background 0.15s; margin-bottom: 4px; border: 1px solid var(--border-subtle);">
+        <div>
+          <div style="font-weight: 700; color: var(--text-primary); font-size: 14px;">${escapeHtml(c.customer_name)}</div>
+          <div style="font-size: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 8px; margin-top: 3px; flex-wrap: wrap;">
+            <span>${escapeHtml(c.phone || 'No phone')}</span>
+            <span>&bull;</span>
+            <span class="provider-tag" style="font-size: 10px; padding: 1px 6px;">${escapeHtml(c.provider)} (${escapeHtml(c.connection_type)})</span>
+            <span>&bull;</span>
+            <span>Exp: ${formatDate(c.expiry_date)}</span>
+          </div>
+        </div>
+        <div style="display: flex; gap: 6px; align-items: center;">
+          <button type="button" class="btn btn-sm btn-ghost qs-view-btn" data-id="${c.id}" title="Customer 360° Drawer">
+            360° Profile
+          </button>
+          <button type="button" class="btn btn-sm btn-primary qs-pay-btn" data-id="${c.id}" data-name="${escapeHtml(c.customer_name)}" data-phone="${escapeHtml(c.phone || '')}" data-provider="${escapeHtml(c.provider)}" data-type="${escapeHtml(c.connection_type)}" title="Record Payment">
+            💰 Settle
+          </button>
+        </div>
+      </div>
+    `
+      )
+      .join('');
+
+    resultsEl.querySelectorAll('.qs-result-item').forEach((row) => {
+      row.onclick = (e) => {
+        if (e.target.closest('.qs-pay-btn') || e.target.closest('.qs-view-btn')) return;
+        closeQuickSearchModal();
+        openCustomerDrawer(row.dataset.id, () => navigateTo(currentView));
+      };
+    });
+
+    resultsEl.querySelectorAll('.qs-view-btn').forEach((btn) => {
+      btn.onclick = () => {
+        closeQuickSearchModal();
+        openCustomerDrawer(btn.dataset.id, () => navigateTo(currentView));
+      };
+    });
+
+    resultsEl.querySelectorAll('.qs-pay-btn').forEach((btn) => {
+      btn.onclick = () => {
+        closeQuickSearchModal();
+        openRecordPaymentModal({
+          connectionId: btn.dataset.id,
+          customerName: btn.dataset.name,
+          phone: btn.dataset.phone,
+          provider: btn.dataset.provider,
+          connectionType: btn.dataset.type,
+          status: 'Paid',
+          onSaved: () => navigateTo(currentView),
+        });
+      };
+    });
+  });
+}
+
+function closeQuickSearchModal() {
+  const modal = document.getElementById('quick-search-modal');
+  if (modal) {
+    modal.classList.add('hidden');
+    modal.innerHTML = '';
+  }
 }
 
 document.addEventListener('DOMContentLoaded', initApp);

@@ -9,8 +9,8 @@ import {
   updateConnection,
   getMonthlyBillingSummary,
 } from './store.js';
-import { getCurrentUser } from './auth.js';
-import { openModal } from './connections.js';
+import { openModal, openCustomerDrawer } from './connections.js';
+import { openRecordPaymentModal } from './billing.js';
 import {
   daysUntil,
   formatDate,
@@ -23,6 +23,8 @@ import {
   formatMonthYear,
   formatCurrency,
 } from './utils.js';
+
+let queueFilter = 'all'; // 'all' | 'overdue' | 'broadband' | 'cable'
 
 export async function renderDashboard(onAddNew, onViewConnection, onRefresh) {
   const view = document.getElementById('dashboard-view');
@@ -49,6 +51,13 @@ export async function renderDashboard(onAddNew, onViewConnection, onRefresh) {
   const urgentQueue = [...overdue, ...(buckets[0] || [])].sort(
     (a, b) => new Date(a.expiry_date) - new Date(b.expiry_date)
   );
+
+  const filteredUrgent = urgentQueue.filter((c) => {
+    if (queueFilter === 'overdue') return daysUntil(c.expiry_date) < 0;
+    if (queueFilter === 'broadband') return c.connection_type === 'Broadband';
+    if (queueFilter === 'cable') return c.connection_type === 'Cable TV';
+    return true;
+  });
 
   const todayStr = new Date().toLocaleDateString('en-IN', {
     weekday: 'short',
@@ -139,10 +148,15 @@ export async function renderDashboard(onAddNew, onViewConnection, onRefresh) {
       <div class="dash-bh-left">
         <div class="dash-bh-icon">${ICONS.receipt}</div>
         <div>
-          <div class="dash-bh-title">${monthDisplay} Collections Status</div>
+          <div class="dash-bh-title">${monthDisplay} Collections & Overdue Status</div>
           <div class="dash-bh-sub">
             <strong style="color: var(--success);">${formatCurrency(billingSummary.totalCollected)}</strong> collected (${billingSummary.paidCount} paid) &bull;
-            <strong style="color: var(--warning);">${formatCurrency(billingSummary.totalPending)}</strong> yet to pay (${billingSummary.pendingCount} pending)
+            <strong style="color: var(--warning);">${formatCurrency(billingSummary.totalPending)}</strong> current month pending
+            ${
+              billingSummary.networkOverdueSummary?.totalNetworkOverdue > 0
+                ? `&bull; <strong style="color: var(--danger);">${formatCurrency(billingSummary.networkOverdueSummary.totalNetworkOverdue)}</strong> total overdue (${billingSummary.networkOverdueSummary.totalSubscribersWithDues} accounts)`
+                : ''
+            }
           </div>
         </div>
       </div>
@@ -152,35 +166,43 @@ export async function renderDashboard(onAddNew, onViewConnection, onRefresh) {
         </div>
         <span class="mono dash-bh-pct">${billingSummary.collectionRate}%</span>
         <button type="button" class="btn btn-sm btn-ghost dash-bh-btn" id="dash-billing-view-btn">
-          Billing Dashboard &rarr;
+          Overdue Tracker &rarr;
         </button>
       </div>
     </div>
 
     <!-- Urgent Queue Panel -->
     <div class="section-panel">
-      <div class="panel-header">
+      <div class="panel-header" style="flex-wrap: wrap; gap: 10px;">
         <div class="panel-title-group">
           <span class="panel-title">Urgent Renewals</span>
           <span class="panel-badge ${urgentQueue.length > 0 ? 'badge-critical' : 'badge-warning'}">
-            ${urgentQueue.length} Tasks
+            ${filteredUrgent.length} Tasks
           </span>
         </div>
+
+        <div class="dash-queue-filters" style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+          <button type="button" class="action-pill btn-qf ${queueFilter === 'all' ? 'active' : ''}" data-filter="all">All (${urgentQueue.length})</button>
+          <button type="button" class="action-pill btn-qf ${queueFilter === 'overdue' ? 'active' : ''}" data-filter="overdue">Overdue (${overdue.length})</button>
+          <button type="button" class="action-pill btn-qf ${queueFilter === 'broadband' ? 'active' : ''}" data-filter="broadband">Broadband</button>
+          <button type="button" class="action-pill btn-qf ${queueFilter === 'cable' ? 'active' : ''}" data-filter="cable">Cable TV</button>
+        </div>
+
         <button class="btn btn-sm btn-ghost" id="dash-view-all-btn">View All Subscribers &rarr;</button>
       </div>
 
       ${
-        urgentQueue.length === 0
+        filteredUrgent.length === 0
           ? `
         <div style="padding: 32px 20px; text-align: center; color: var(--text-muted);">
           <div style="color: var(--success); margin-bottom: 6px; display: flex; justify-content: center;">${ICONS.check}</div>
           <div style="font-size: 14px; font-weight: 600; color: var(--text-primary);">All caught up</div>
-          <div style="font-size: 12px; margin-top: 2px;">No subscribers expiring or overdue in the next ${criticalDaysLabel} days.</div>
+          <div style="font-size: 12px; margin-top: 2px;">No subscribers match this urgent filter.</div>
         </div>
       `
           : `
         <div class="queue-list">
-          ${urgentQueue.map((c) => renderQueueRow(c, tiers)).join('')}
+          ${filteredUrgent.map((c) => renderQueueRow(c, tiers)).join('')}
         </div>
       `
       }
@@ -253,6 +275,41 @@ export async function renderDashboard(onAddNew, onViewConnection, onRefresh) {
       }
     });
   });
+
+  // Filter pills
+  view.querySelectorAll('.btn-qf').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      queueFilter = btn.dataset.filter;
+      renderDashboard(onAddNew, onViewConnection, onRefresh);
+    });
+  });
+
+  // Queue Pay / Settle button
+  view.querySelectorAll('.queue-pay-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      openRecordPaymentModal({
+        connectionId: btn.dataset.id,
+        customerName: btn.dataset.name,
+        phone: btn.dataset.phone,
+        provider: btn.dataset.provider,
+        connectionType: btn.dataset.type,
+        status: 'Paid',
+        onSaved: async () => {
+          await renderDashboard(onAddNew, onViewConnection, onRefresh);
+          if (onRefresh) onRefresh();
+        },
+      });
+    });
+  });
+
+  // Clickable customer name opens Customer 360 Drawer
+  view.querySelectorAll('.queue-name-clickable').forEach((el) => {
+    el.addEventListener('click', () => {
+      openCustomerDrawer(el.dataset.id, () => {
+        renderDashboard(onAddNew, onViewConnection, onRefresh);
+      });
+    });
+  });
 }
 
 function renderQueueRow(connection, tiers) {
@@ -272,7 +329,9 @@ function renderQueueRow(connection, tiers) {
           ${badge.label}
         </div>
         <div class="queue-info">
-          <div class="queue-name">${escapeHtml(connection.customer_name)}</div>
+          <div class="queue-name queue-name-clickable" data-id="${connection.id}" title="Click to view Customer 360° Drawer" style="cursor: pointer; font-weight: 700;">
+            ${escapeHtml(connection.customer_name)}
+          </div>
           <div class="queue-sub">
             <span class="mono">${escapeHtml(connection.phone || 'No phone')}</span>
             <span>&bull;</span>
@@ -303,6 +362,9 @@ function renderQueueRow(connection, tiers) {
         `
             : ''
         }
+        <button type="button" class="btn btn-sm btn-success queue-pay-btn" data-id="${connection.id}" data-name="${escapeHtml(connection.customer_name)}" data-phone="${escapeHtml(connection.phone || '')}" data-provider="${escapeHtml(connection.provider)}" data-type="${escapeHtml(connection.connection_type)}" title="Record Payment / Settle Dues">
+          💰 Settle / Pay
+        </button>
         <button type="button" class="btn btn-sm btn-ghost queue-status-btn" data-id="${connection.id}" data-status="Renewed" title="Renew — set the new expiry date">
           ✓ Renew
         </button>

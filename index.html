@@ -37,6 +37,18 @@
             </div>
           </div>
           <div class="top-bar-right">
+            <!-- Global Search Trigger (Cmd+K) -->
+            <button id="top-search-btn" class="topbar-search-btn" title="Quick Search (Press Cmd+K or /)" aria-label="Search">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <span class="search-placeholder-text">Search...</span>
+              <kbd class="search-kbd-hint">⌘K</kbd>
+            </button>
+
+            <!-- Theme Toggle (Dark / Light) -->
+            <button id="theme-toggle-btn" class="topbar-icon-btn" title="Toggle Dark/Light Mode" aria-label="Toggle Theme">
+              <span class="theme-icon-slot"></span>
+            </button>
+
             <div id="quick-alert-pill" class="quick-alert-pill hidden"></div>
             <button id="global-add-btn" class="btn btn-sm btn-primary">
               <span class="btn-icon">+</span>
@@ -66,10 +78,12 @@
       <nav id="mobile-nav"></nav>
     </div>
 
-    <!-- ═══ Modal Overlays ═══ -->
+    <!-- ═══ Modal & Drawer Overlays ═══ -->
     <div id="connection-modal" class="modal hidden"></div>
     <div id="billing-modal" class="modal hidden"></div>
     <div id="sql-modal" class="modal hidden"></div>
+    <div id="quick-search-modal" class="modal hidden"></div>
+    <div id="customer-drawer" class="customer-drawer-overlay hidden"></div>
 
     <!-- ═══ Toast Notifications ═══ -->
     <div id="toast-container"></div>

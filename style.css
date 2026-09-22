@@ -74,6 +74,57 @@
   --anim-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+[data-theme="dark"] {
+  /* Surface colors */
+  --bg-app: #0b0f19;
+  --bg-surface: #111827;
+  --bg-surface-raised: #182234;
+  --bg-surface-hover: #1f2d45;
+  --bg-surface-active: #253754;
+  --bg-input: #151e30;
+
+  /* Borders & Dividers */
+  --border-subtle: #1e293b;
+  --border-default: #283548;
+  --border-strong: #3b4d66;
+  --border-focus: #3b82f6;
+
+  /* Primary Accent */
+  --accent: #3b82f6;
+  --accent-hover: #60a5fa;
+  --accent-subtle: rgba(59, 130, 246, 0.15);
+  --accent-border: rgba(59, 130, 246, 0.35);
+
+  /* Status Colors */
+  --danger: #ef4444;
+  --danger-bg: rgba(239, 68, 68, 0.15);
+  --danger-border: rgba(239, 68, 68, 0.32);
+
+  --warning: #f59e0b;
+  --warning-bg: rgba(245, 158, 11, 0.15);
+  --warning-border: rgba(245, 158, 11, 0.32);
+
+  --success: #22c55e;
+  --success-bg: rgba(34, 197, 94, 0.15);
+  --success-border: rgba(34, 197, 94, 0.32);
+
+  --info: #06b6d4;
+  --info-bg: rgba(6, 182, 212, 0.15);
+  --info-border: rgba(6, 182, 212, 0.32);
+
+  /* Typography */
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+  --text-dim: #64748b;
+
+  /* Shadows */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.6);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.7);
+}
+
 /* ─── Global Reset ─────────────────────────────────────── */
 *, *::before, *::after {
   box-sizing: border-box;
@@ -499,8 +550,7 @@ a {
 
 #top-bar {
   height: var(--topbar-h);
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(8px);
+  background: var(--bg-surface);
   border-bottom: 1px solid var(--border-subtle);
   display: flex;
   align-items: center;
@@ -514,7 +564,70 @@ a {
 .top-bar-left, .top-bar-right {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
+}
+
+.topbar-search-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--bg-app);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-full);
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all var(--anim-fast);
+}
+
+.topbar-search-btn:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+  background: var(--bg-surface-raised);
+}
+
+.topbar-search-btn svg {
+  color: var(--text-dim);
+}
+
+.search-placeholder-text {
+  font-size: 12px;
+}
+
+.search-kbd-hint {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  padding: 1px 5px;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+.topbar-icon-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-app);
+  border: 1px solid var(--border-default);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--anim-fast);
+}
+
+.topbar-icon-btn:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+
+.topbar-icon-btn svg {
+  width: 15px;
+  height: 15px;
 }
 
 .network-badge {
@@ -1882,6 +1995,291 @@ a {
   border-radius: var(--radius-md);
 }
 
+/* ─── Mode Switcher (Overdue Tracker vs Monthly Calendar) ─── */
+.billing-mode-switcher {
+  display: inline-flex;
+  align-items: center;
+  background: var(--bg-surface-raised);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 3px;
+  gap: 3px;
+}
+
+.billing-mode-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--anim-fast);
+}
+
+.billing-mode-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-surface-hover);
+}
+
+.billing-mode-btn.active {
+  background: var(--bg-surface);
+  color: var(--accent);
+  box-shadow: var(--shadow-xs);
+  font-weight: 700;
+}
+
+.billing-mode-btn .mode-badge-due {
+  background: rgba(220, 38, 38, 0.12);
+  color: var(--danger);
+  border: 1px solid rgba(220, 38, 38, 0.25);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  letter-spacing: -0.01em;
+}
+
+/* ─── Unpaid Months Interactive Chips ─── */
+.unpaid-months-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-width: 280px;
+}
+
+.month-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: var(--radius-xs);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all var(--anim-fast);
+  background: var(--bg-surface-raised);
+}
+
+.month-chip:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-xs);
+}
+
+.month-chip.chip-overdue {
+  background: rgba(220, 38, 38, 0.08);
+  border-color: rgba(220, 38, 38, 0.25);
+  color: var(--danger);
+}
+
+.month-chip.chip-overdue:hover {
+  background: rgba(220, 38, 38, 0.15);
+  border-color: var(--danger);
+}
+
+.month-chip.chip-current {
+  background: rgba(37, 99, 235, 0.08);
+  border-color: rgba(37, 99, 235, 0.25);
+  color: var(--accent);
+}
+
+.month-chip.chip-current:hover {
+  background: rgba(37, 99, 235, 0.15);
+  border-color: var(--accent);
+}
+
+.month-chip .chip-amt {
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  font-weight: 700;
+  opacity: 0.85;
+}
+
+.badge-all-clear {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--success);
+}
+
+/* ─── Dues Severity Badges ─── */
+.dues-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.dues-badge.badge-critical {
+  background: rgba(220, 38, 38, 0.1);
+  color: var(--danger);
+  border: 1px solid rgba(220, 38, 38, 0.3);
+}
+
+.dues-badge.badge-warning {
+  background: rgba(217, 119, 6, 0.1);
+  color: var(--warning);
+  border: 1px solid rgba(217, 119, 6, 0.3);
+}
+
+.dues-badge.badge-current {
+  background: rgba(37, 99, 235, 0.1);
+  color: var(--accent);
+  border: 1px solid rgba(37, 99, 235, 0.25);
+}
+
+.dues-badge.badge-cleared {
+  background: rgba(22, 163, 74, 0.1);
+  color: var(--success);
+  border: 1px solid rgba(22, 163, 74, 0.25);
+}
+
+/* ─── Normal Rate Display & Editor ─── */
+.normal-rate-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.normal-rate-val {
+  font-family: var(--font-mono, monospace);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.btn-edit-rate {
+  opacity: 0.6;
+  padding: 2px 4px;
+  border-radius: var(--radius-xs);
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--anim-fast);
+}
+
+.btn-edit-rate:hover {
+  opacity: 1;
+  color: var(--accent);
+  background: var(--bg-surface-hover);
+}
+
+/* ─── Overdue Amount Highlights ─── */
+.amount-overdue {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--danger);
+  letter-spacing: -0.01em;
+}
+
+.amount-cleared {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--success);
+}
+
+/* ─── Prior Overdue Tag in Monthly View ─── */
+.prior-overdue-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--danger);
+  background: rgba(220, 38, 38, 0.08);
+  border: 1px solid rgba(220, 38, 38, 0.2);
+  border-radius: var(--radius-xs);
+  padding: 2px 6px;
+  margin-top: 3px;
+  cursor: pointer;
+  transition: all var(--anim-fast);
+}
+
+.prior-overdue-tag:hover {
+  background: rgba(220, 38, 38, 0.15);
+  border-color: var(--danger);
+}
+
+/* ─── Multi-Month Settlement Modal Checklist ─── */
+.settle-months-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 8px;
+  background: var(--bg-surface-raised);
+  margin-bottom: 14px;
+}
+
+.settle-month-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  border-radius: var(--radius-xs);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background var(--anim-fast);
+}
+
+.settle-month-row:hover {
+  background: var(--bg-surface-hover);
+}
+
+.settle-month-row.selected {
+  border-color: var(--accent);
+  background: rgba(37, 99, 235, 0.05);
+}
+
+.settle-month-row-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settle-calc-box {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--bg-surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  margin-bottom: 14px;
+  text-align: center;
+}
+
+.settle-calc-item .calc-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  letter-spacing: 0.03em;
+}
+
+.settle-calc-item .calc-val {
+  font-size: 14px;
+  font-weight: 700;
+  margin-top: 2px;
+}
+
 /* Dashboard Highlight Card */
 .dash-billing-highlight-card {
   display: flex;
@@ -2052,4 +2450,322 @@ a {
 @media (max-width: 420px) {
   .kpi-row { grid-template-columns: 1fr 1fr; }
   .auth-card { padding: 26px 20px; }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ENHANCED COMPONENTS: Customer 360 Drawer, Bulk Bar, 
+   Daily Reconciler, Tabs, Receipts, and Table Sorting
+   ═══════════════════════════════════════════════════════════ */
+
+/* ─── Table Sorting & Multi-select Checkboxes ─────────────── */
+.sortable-th {
+  cursor: pointer;
+  user-select: none;
+  transition: color var(--anim-fast);
+}
+.sortable-th:hover {
+  color: var(--accent);
+}
+.sort-indicator {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 11px;
+  color: var(--accent);
+}
+.row-checkbox {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* ─── Floating Bulk Action Bar ────────────────────────────── */
+.bulk-action-bar {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 990;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+  border-radius: var(--radius-full);
+  padding: 8px 18px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  animation: bulkBarSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  backdrop-filter: blur(8px);
+}
+@keyframes bulkBarSlideUp {
+  from { transform: translate(-50%, 40px); opacity: 0; }
+  to { transform: translate(-50%, 0); opacity: 1; }
+}
+.bulk-count {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+/* ─── Customer 360° Drawer ────────────────────────────────── */
+.customer-drawer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1050;
+  display: flex;
+  justify-content: flex-end;
+}
+.customer-drawer-overlay.hidden {
+  display: none !important;
+}
+.drawer-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(4px);
+  animation: drawerFadeIn 0.2s ease;
+}
+@keyframes drawerFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.drawer-content {
+  position: relative;
+  width: 100%;
+  max-width: 480px;
+  height: 100%;
+  background: var(--bg-surface);
+  border-left: 1px solid var(--border-default);
+  box-shadow: -8px 0 28px rgba(0, 0, 0, 0.2);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  animation: drawerSlideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 10;
+}
+@keyframes drawerSlideIn {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+.drawer-header {
+  padding: 20px 22px;
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  background: var(--bg-surface-raised);
+}
+.drawer-body {
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  flex: 1;
+}
+.drawer-section-title {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+.drawer-card {
+  background: var(--bg-surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 14px;
+}
+.drawer-meta-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  font-size: 13px;
+}
+.drawer-meta-item .label {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 2px;
+}
+.drawer-meta-item .value {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.drawer-actions {
+  padding: 16px 22px;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-surface-raised);
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* ─── Daily Collection Register / Reconciler Bar ──────────── */
+.daily-recon-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 10px 16px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+.dr-header-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.dr-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.dr-label {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.dr-val {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.dr-sub {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.dr-divider {
+  width: 1px;
+  height: 16px;
+  background: var(--border-default);
+}
+
+/* ─── Settings Tabs ───────────────────────────────────────── */
+.settings-tabs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+.settings-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-default);
+  background: var(--bg-surface);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--anim-fast);
+  white-space: nowrap;
+}
+.settings-tab-btn:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+}
+.settings-tab-btn.active {
+  background: var(--accent);
+  color: #ffffff;
+  border-color: var(--accent);
+}
+.settings-tab-btn svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* ─── Quick Search Palette ────────────────────────────────── */
+.quick-search-palette {
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--border-default);
+}
+.qs-result-item:hover {
+  background: var(--bg-surface-hover);
+}
+
+/* ─── Receipt Slip Styles & Media Print ───────────────────── */
+.gv-receipt-slip {
+  background: #ffffff;
+  color: #111827;
+  padding: 20px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  box-shadow: var(--shadow-sm);
+}
+.gv-receipt-header {
+  text-align: center;
+  margin-bottom: 12px;
+}
+.gv-receipt-title {
+  font-size: 15px;
+  font-weight: 800;
+  color: #111827;
+}
+.gv-receipt-sub {
+  font-size: 11px;
+  color: #4b5563;
+}
+.gv-receipt-row {
+  display: flex;
+  justify-content: space-between;
+  margin: 4px 0;
+}
+.gv-receipt-divider {
+  border-top: 1px dashed #d1d5db;
+  margin: 10px 0;
+}
+.gv-receipt-total {
+  font-size: 14px;
+  font-weight: 800;
+  color: #111827;
+}
+.gv-receipt-footer {
+  text-align: center;
+  margin-top: 12px;
+}
+.gv-receipt-status-stamp {
+  display: inline-block;
+  padding: 3px 10px;
+  border: 2px solid #16a34a;
+  color: #16a34a;
+  font-weight: 800;
+  border-radius: 4px;
+  font-size: 11px;
+  margin-bottom: 6px;
+}
+.gv-receipt-upi {
+  font-size: 11px;
+  color: #4b5563;
+  margin-bottom: 2px;
+}
+.gv-receipt-note {
+  font-size: 11px;
+  color: #6b7280;
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #receipt-printable-area, #receipt-printable-area * {
+    visibility: visible;
+  }
+  #receipt-printable-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+  }
 }
