@@ -27,23 +27,36 @@ import { ICONS, showToast, escapeHtml, currentMonthISO, formatDate } from './uti
 let currentView = 'dashboard';
 
 // Theme Controller
-function initTheme() {
-  const savedTheme = localStorage.getItem('gv_theme') || 'dark';
+export function initTheme() {
+  const savedTheme = localStorage.getItem('gv_theme') || 'light';
   setTheme(savedTheme);
 }
 
-function setTheme(theme) {
+export function setTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
   localStorage.setItem('gv_theme', theme);
+
+  // Sync theme-color meta tag for browser UI
+  const metaTheme = document.querySelector('meta[name="theme-color"]');
+  if (metaTheme) {
+    metaTheme.setAttribute('content', theme === 'dark' ? '#0b0f19' : '#f1f5f9');
+  }
+
   const themeBtn = document.getElementById('theme-toggle-btn');
   if (themeBtn) {
     themeBtn.innerHTML = theme === 'dark' ? ICONS.sun : ICONS.moon;
     themeBtn.title = theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode';
   }
+
+  const authThemeBtn = document.getElementById('auth-theme-toggle-btn');
+  if (authThemeBtn) {
+    authThemeBtn.innerHTML = theme === 'dark' ? ICONS.sun : ICONS.moon;
+    authThemeBtn.title = theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode';
+  }
 }
 
-function toggleTheme() {
-  const current = document.documentElement.getAttribute('data-theme') || 'dark';
+export function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme') || 'light';
   setTheme(current === 'dark' ? 'light' : 'dark');
 }
 
@@ -167,7 +180,7 @@ function setupTopBar() {
 
   const themeBtn = document.getElementById('theme-toggle-btn');
   if (themeBtn) {
-    const current = document.documentElement.getAttribute('data-theme') || 'dark';
+    const current = document.documentElement.getAttribute('data-theme') || 'light';
     themeBtn.innerHTML = current === 'dark' ? ICONS.sun : ICONS.moon;
     themeBtn.title = current === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode';
     themeBtn.onclick = toggleTheme;

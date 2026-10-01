@@ -2,7 +2,8 @@
  * Authentication module — Precision PIN Keypad with instant verification.
  */
 import { getUsers, verifyPin, getUserById } from './store.js';
-import { showToast, escapeHtml } from './utils.js';
+import { showToast, escapeHtml, ICONS } from './utils.js';
+import { toggleTheme } from './app.js';
 
 const SESSION_KEY = 'globalvision_session';
 
@@ -42,7 +43,11 @@ export async function renderLogin(onLoginSuccess) {
   let currentPin = '';
 
   function renderAuthCard() {
+    const curTheme = document.documentElement.getAttribute('data-theme') || 'light';
     loginScreen.innerHTML = `
+      <button type="button" id="auth-theme-toggle-btn" class="topbar-icon-btn auth-theme-toggle" title="${curTheme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}" aria-label="Toggle Theme">
+        ${curTheme === 'dark' ? ICONS.sun : ICONS.moon}
+      </button>
       <div class="auth-card">
         <div class="auth-header">
           <div class="auth-logo-badge">
@@ -108,6 +113,14 @@ export async function renderLogin(onLoginSuccess) {
         handleKeyInput(key);
       });
     });
+
+    // Attach theme toggle
+    const authThemeBtn = document.getElementById('auth-theme-toggle-btn');
+    if (authThemeBtn) {
+      authThemeBtn.addEventListener('click', () => {
+        toggleTheme();
+      });
+    }
   }
 
   async function handleKeyInput(key) {

@@ -99,7 +99,7 @@ async function renderTable() {
 function statusPill(status) {
   const c = STATUS_COLORS[status];
   if (!c) return `<span>${escapeHtml(status || '—')}</span>`;
-  return `<span style="display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: ${c.bg}; color: ${c.text};">${escapeHtml(status)}</span>`;
+  return `<span style="display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; background: ${c.bg}; color: ${c.text}; border: 1px solid ${c.border || 'transparent'};">${escapeHtml(status)}</span>`;
 }
 
 function renderEventRow(e) {

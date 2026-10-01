@@ -108,11 +108,36 @@ export const STATUSES = [
 ];
 
 export const STATUS_COLORS = {
-  Active: { bg: 'rgba(16, 185, 129, 0.15)', text: '#10b981', glow: 'rgba(16, 185, 129, 0.4)' },
-  'Pending Disconnection': { bg: 'rgba(245, 158, 11, 0.15)', text: '#f59e0b', glow: 'rgba(245, 158, 11, 0.4)' },
-  Disconnected: { bg: 'rgba(239, 68, 68, 0.15)', text: '#ef4444', glow: 'rgba(239, 68, 68, 0.4)' },
-  Expired: { bg: 'rgba(100, 116, 139, 0.15)', text: '#94a3b8', glow: 'rgba(100, 116, 139, 0.4)' },
-  Renewed: { bg: 'rgba(6, 182, 212, 0.15)', text: '#06b6d4', glow: 'rgba(6, 182, 212, 0.4)' },
+  Active: {
+    bg: 'var(--success-bg)',
+    text: 'var(--success)',
+    border: 'var(--success-border)',
+    glow: 'rgba(22, 163, 74, 0.4)',
+  },
+  'Pending Disconnection': {
+    bg: 'var(--warning-bg)',
+    text: 'var(--warning)',
+    border: 'var(--warning-border)',
+    glow: 'rgba(217, 119, 6, 0.4)',
+  },
+  Disconnected: {
+    bg: 'var(--danger-bg)',
+    text: 'var(--danger)',
+    border: 'var(--danger-border)',
+    glow: 'rgba(220, 38, 38, 0.4)',
+  },
+  Expired: {
+    bg: 'var(--bg-surface-raised)',
+    text: 'var(--text-secondary)',
+    border: 'var(--border-default)',
+    glow: 'rgba(100, 116, 139, 0.4)',
+  },
+  Renewed: {
+    bg: 'var(--info-bg)',
+    text: 'var(--info)',
+    border: 'var(--info-border)',
+    glow: 'rgba(2, 132, 199, 0.4)',
+  },
 };
 
 // Providers and connection types are now user-managed (see store.js
