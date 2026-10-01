@@ -11,6 +11,7 @@ import {
 } from './store.js';
 import { openModal, openCustomerDrawer } from './connections.js';
 import { openRecordPaymentModal } from './billing.js';
+import { getCurrentUser } from './auth.js';
 import {
   daysUntil,
   formatDate,
