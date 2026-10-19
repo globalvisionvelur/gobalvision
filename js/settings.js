@@ -844,6 +844,7 @@ export async function renderSettings() {
     const dbDisconnectBtn = document.getElementById('db-disconnect-btn');
     if (dbDisconnectBtn) {
       dbDisconnectBtn.addEventListener('click', () => {
+        if (!window.confirm('Disconnect from Supabase? The app will reload and you will need the URL and anon key to reconnect.')) return;
         saveSupabaseConfig({ url: '', anonKey: '', enabled: false });
         showToast('Disconnected from Supabase', 'success');
         window.location.reload();

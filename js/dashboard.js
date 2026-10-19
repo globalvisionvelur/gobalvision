@@ -26,9 +26,11 @@ import {
 } from './utils.js';
 
 let queueFilter = 'all'; // 'all' | 'overdue' | 'broadband' | 'cable'
+let renderSeq = 0; // lets a slow, stale render notice a newer one and bail out
 
 export async function renderDashboard(onAddNew, onViewConnection, onRefresh) {
   const view = document.getElementById('dashboard-view');
+  const seq = ++renderSeq;
   view.innerHTML = `<div style="padding: 60px 20px; text-align: center; color: var(--text-muted); font-size: 13px;">Loading dashboard…</div>`;
 
   const tiers = await getAlertTiers(); // ascending by days, e.g. Critical(7) / Medium(30) / Low(60)
@@ -37,10 +39,12 @@ export async function renderDashboard(onAddNew, onViewConnection, onRefresh) {
   const currentMonth = currentMonthISO();
   const billingSummary = await getMonthlyBillingSummary(currentMonth);
   const monthDisplay = formatMonthYear(currentMonth);
+  if (seq !== renderSeq) return; // a newer render started; don't overwrite it with stale data
 
   // Bucket every connection due within the widest tier into its first-matching (most urgent) tier.
   const maxDays = tiers.length ? tiers[tiers.length - 1].days : 30;
   const upcoming = tiers.length ? await getAlertConnections(maxDays) : [];
+  if (seq !== renderSeq) return;
   const buckets = tiers.map(() => []);
   upcoming.forEach((c) => {
     const days = daysUntil(c.expiry_date);
@@ -265,15 +269,25 @@ export async function renderDashboard(onAddNew, onViewConnection, onRefresh) {
         return;
       }
 
-      const actor = await getCurrentUser();
-      const res = await updateConnection(id, { status: newStatus }, actor);
-      if (res.success) {
-        showToast(`Updated to ${newStatus}`, 'success');
-        await renderDashboard(onAddNew, onViewConnection, onRefresh);
-        if (onRefresh) onRefresh();
-      } else {
+      // Guard against double-clicks: two in-flight updates would both read the
+      // old status and write duplicate audit-log events.
+      if (btn.disabled) return;
+      view.querySelectorAll(`.queue-status-btn[data-id="${id}"]`).forEach((b) => (b.disabled = true));
+
+      try {
+        const actor = await getCurrentUser().catch(() => null);
+        const res = await updateConnection(id, { status: newStatus }, actor);
+        if (res.success) {
+          showToast(`Updated to ${newStatus}`, 'success');
+          await renderDashboard(onAddNew, onViewConnection, onRefresh);
+          if (onRefresh) onRefresh();
+          return;
+        }
         showToast(res.message || 'Failed to update status', 'error');
+      } catch (err) {
+        showToast(err?.message || 'Failed to update status', 'error');
       }
+      view.querySelectorAll(`.queue-status-btn[data-id="${id}"]`).forEach((b) => (b.disabled = false));
     });
   });
 

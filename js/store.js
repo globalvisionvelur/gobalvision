@@ -342,11 +342,18 @@ export async function quickRenewConnection(id, months = 1, actor = null) {
 export async function bulkUpdateConnections(ids = [], updates = {}, actor = null) {
   if (!ids || ids.length === 0) return { success: true, count: 0 };
   let successCount = 0;
+  let lastError = '';
   for (const id of ids) {
     const res = await updateConnection(id, updates, actor);
     if (res.success) successCount++;
+    else lastError = res.message || lastError;
   }
-  return { success: true, count: successCount };
+  return {
+    success: successCount > 0,
+    count: successCount,
+    failed: ids.length - successCount,
+    message: lastError,
+  };
 }
 
 // ─── Bill Payments Operations ──────────────────────────────

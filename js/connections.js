@@ -550,7 +550,7 @@ async function renderTable() {
       e.stopPropagation();
       const id = sel.dataset.id;
       const status = sel.value;
-      const actor = await getCurrentUser();
+      const actor = await getCurrentUser().catch(() => null);
       const res = await updateConnection(id, { status }, actor);
       if (res.success) {
         showToast(`Status updated to ${status}`, 'success');
@@ -614,15 +614,22 @@ function updateBulkBar() {
     renderTable();
   };
 
-  document.getElementById('bulk-renew-btn').onclick = async () => {
+  document.getElementById('bulk-renew-btn').onclick = async (e) => {
+    const btn = e.currentTarget;
+    if (btn.disabled) return;
+    btn.disabled = true;
     const ids = Array.from(selectedConnectionIds);
-    const actor = await getCurrentUser();
+    const actor = await getCurrentUser().catch(() => null);
     let renewed = 0;
     for (const id of ids) {
       const res = await quickRenewConnection(id, 1, actor);
       if (res.success) renewed++;
     }
-    showToast(`Quick renewed ${renewed} subscribers for +1 Month`, 'success');
+    if (renewed < ids.length) {
+      showToast(`Renewed ${renewed} of ${ids.length} subscribers for +1 Month; ${ids.length - renewed} failed`, 'error');
+    } else {
+      showToast(`Quick renewed ${renewed} subscribers for +1 Month`, 'success');
+    }
     selectedConnectionIds.clear();
     await renderTable();
     if (refreshDashboardCb) refreshDashboardCb();
@@ -631,10 +638,15 @@ function updateBulkBar() {
   document.getElementById('bulk-status-select').onchange = async (e) => {
     const newStatus = e.target.value;
     if (!newStatus) return;
+    e.target.disabled = true;
     const ids = Array.from(selectedConnectionIds);
-    const actor = await getCurrentUser();
+    const actor = await getCurrentUser().catch(() => null);
     const res = await bulkUpdateConnections(ids, { status: newStatus }, actor);
-    showToast(`Updated ${res.count} subscribers to ${newStatus}`, 'success');
+    if (res.failed) {
+      showToast(`Updated ${res.count} of ${ids.length} to ${newStatus}; ${res.failed} failed${res.message ? ` (${res.message})` : ''}`, 'error');
+    } else {
+      showToast(`Updated ${res.count} subscribers to ${newStatus}`, 'success');
+    }
     selectedConnectionIds.clear();
     await renderTable();
     if (refreshDashboardCb) refreshDashboardCb();
@@ -979,8 +991,12 @@ export async function openCustomerDrawer(connectionId) {
   document.getElementById('drawer-close-btn').onclick = closeDrawer;
 
   // Quick renew buttons from Drawer
-  document.getElementById('dr-renew-1m-btn').onclick = async () => {
-    const actor = await getCurrentUser();
+  document.getElementById('dr-renew-1m-btn').onclick = async (e) => {
+    // Disable while in flight: a double-click would otherwise renew twice.
+    const btn = e.currentTarget;
+    if (btn.disabled) return;
+    btn.disabled = true;
+    const actor = await getCurrentUser().catch(() => null);
     const res = await quickRenewConnection(conn.id, 1, actor);
     if (res.success) {
       showToast('Extended validity by 1 month', 'success');
@@ -989,11 +1005,16 @@ export async function openCustomerDrawer(connectionId) {
       if (refreshDashboardCb) refreshDashboardCb();
     } else {
       showToast(res.message || 'Renewal failed', 'error');
+      btn.disabled = false;
     }
   };
 
-  document.getElementById('dr-renew-3m-btn').onclick = async () => {
-    const actor = await getCurrentUser();
+  document.getElementById('dr-renew-3m-btn').onclick = async (e) => {
+    // Disable while in flight: a double-click would otherwise renew twice.
+    const btn = e.currentTarget;
+    if (btn.disabled) return;
+    btn.disabled = true;
+    const actor = await getCurrentUser().catch(() => null);
     const res = await quickRenewConnection(conn.id, 3, actor);
     if (res.success) {
       showToast('Extended validity by 3 months', 'success');
@@ -1002,6 +1023,7 @@ export async function openCustomerDrawer(connectionId) {
       if (refreshDashboardCb) refreshDashboardCb();
     } else {
       showToast(res.message || 'Renewal failed', 'error');
+      btn.disabled = false;
     }
   };
 
@@ -1356,7 +1378,10 @@ async function handleDelete(id) {
 
   document.getElementById('del-backdrop').addEventListener('click', closeModal);
   document.getElementById('del-cancel').addEventListener('click', closeModal);
-  document.getElementById('del-confirm').addEventListener('click', async () => {
+  document.getElementById('del-confirm').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    if (btn.disabled) return;
+    btn.disabled = true;
     const res = await deleteConnection(id);
     if (res.success) {
       showToast('Subscriber deleted', 'success');
@@ -1366,6 +1391,7 @@ async function handleDelete(id) {
       if (refreshDashboardCb) refreshDashboardCb();
     } else {
       showToast(res.message || 'Failed to delete subscriber', 'error');
+      btn.disabled = false;
     }
   });
 }
