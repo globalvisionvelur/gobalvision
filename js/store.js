@@ -85,6 +85,26 @@ export async function initStore() {
       if (userErr) throw userErr;
     }
 
+    // Seed master_plans if table is empty
+    try {
+      const { count: plansCount } = await client.from('master_plans').select('id', { count: 'exact', head: true });
+      if (!plansCount) {
+        const defaultPlans = DEFAULT_MASTER_PLANS.map(({ name, provider, connection_type, rate }) => ({ name, provider, connection_type, rate }));
+        await client.from('master_plans').insert(defaultPlans);
+      }
+    } catch {}
+
+    // Migrate localStorage rates to monthly_rate column
+    try {
+      const localRates = JSON.parse(localStorage.getItem('globalvision_customer_rates') || '{}');
+      if (Object.keys(localRates).length > 0) {
+        for (const [connId, rate] of Object.entries(localRates)) {
+          await client.from('connections').update({ monthly_rate: Number(rate) }).eq('id', connId);
+        }
+        localStorage.removeItem('globalvision_customer_rates');
+      }
+    } catch {}
+
     return { ok: true };
   } catch (err) {
     logError('initStore', err);
@@ -378,33 +398,30 @@ function saveLocalPayments(list) {
 
 export function getSubscriberRate(connection) {
   if (!connection) return 500;
-  // Check local rate override
-  try {
-    const rates = JSON.parse(localStorage.getItem(LOCAL_RATES_KEY) || '{}');
-    if (rates[connection.id]) return Number(rates[connection.id]);
-  } catch {}
-  // Check if noted in notes: e.g. [Rate: 600] or [Plan: ₹600]
+  // Primary: rate stored on the connection record (synced via Supabase)
+  if (connection.monthly_rate != null && Number(connection.monthly_rate) > 0) {
+    return Number(connection.monthly_rate);
+  }
+  // Fallback: rate embedded in notes
   if (connection.notes) {
     const m = connection.notes.match(/\[(?:Rate|Plan):\s*₹?(\d+(?:\.\d+)?)\]/i);
     if (m && m[1]) return Number(m[1]);
   }
-  // Default fallback rate based on connection type
   return connection.connection_type === 'Cable TV' ? 350 : 500;
 }
 
-export function setSubscriberRate(connectionId, rate) {
+export async function setSubscriberRate(connectionId, rate) {
   try {
-    const rates = JSON.parse(localStorage.getItem(LOCAL_RATES_KEY) || '{}');
-    rates[connectionId] = Number(rate) || 500;
-    localStorage.setItem(LOCAL_RATES_KEY, JSON.stringify(rates));
+    const numericRate = Number(rate) || 500;
+    const { error } = await db().from('connections').update({ monthly_rate: numericRate, updated_at: new Date().toISOString() }).eq('id', connectionId);
+    if (error) throw error;
   } catch (e) {
-    console.error('Failed to save rate:', e);
+    logError('setSubscriberRate', e);
   }
 }
 
 export async function updateSubscriberRate(connectionId, newRate, actor = null) {
   const numericRate = Math.max(0, Number(newRate) || 0);
-  setSubscriberRate(connectionId, numericRate);
   try {
     const conn = await getConnectionById(connectionId);
     if (conn) {
@@ -414,7 +431,9 @@ export async function updateSubscriberRate(connectionId, newRate, actor = null) 
       } else {
         notes = notes ? `${notes.trim()} [Rate: ₹${numericRate}]` : `[Rate: ₹${numericRate}]`;
       }
-      await updateConnection(connectionId, { notes }, actor);
+      await updateConnection(connectionId, { notes, monthly_rate: numericRate }, actor);
+    } else {
+      await db().from('connections').update({ monthly_rate: numericRate, updated_at: new Date().toISOString() }).eq('id', connectionId);
     }
   } catch (err) {
     logError('updateSubscriberRate', err);
@@ -462,7 +481,7 @@ export async function recordBillPayment(payment, actor = null) {
 
   // Remember the rate for this customer
   if (payment.connection_id && payload.amount > 0) {
-    setSubscriberRate(payment.connection_id, payload.amount);
+    await setSubscriberRate(payment.connection_id, payload.amount);
   }
 
   try {
@@ -996,11 +1015,17 @@ export async function getBackupSnapshot() {
   }
 
   const billPayments = await getBillPayments();
+  let masterPlans = [];
+  try {
+    const { data: plans } = await client.from('master_plans').select('*');
+    masterPlans = plans || [];
+  } catch {}
 
   return {
     users: users.data || [],
     connections: connections.data || [],
     settings: settings.data || null,
+    master_plans: masterPlans,
     bill_payments: billPayments || [],
     exported_at: new Date().toISOString(),
   };
@@ -1300,18 +1325,40 @@ export async function saveAlertTiers(rawTiers) {
 }
 
 // ─── Business Profile Operations ───────────────────────────
-export function getBusinessProfile() {
+export async function getBusinessProfile() {
+  try {
+    const { data, error } = await db().from('app_settings').select('business_profile').eq('id', 1).maybeSingle();
+    if (error) throw error;
+    if (data?.business_profile && typeof data.business_profile === 'object') {
+      return { ...DEFAULT_BUSINESS_PROFILE, ...data.business_profile };
+    }
+  } catch (err) {
+    logError('getBusinessProfile', err);
+  }
+  // Fallback: migrate from localStorage if present
   try {
     const raw = localStorage.getItem(LOCAL_BUSINESS_PROFILE_KEY);
-    if (raw) return { ...DEFAULT_BUSINESS_PROFILE, ...JSON.parse(raw) };
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      // Auto-migrate to Supabase
+      try {
+        await db().from('app_settings').update({ business_profile: { ...DEFAULT_BUSINESS_PROFILE, ...parsed } }).eq('id', 1);
+        localStorage.removeItem(LOCAL_BUSINESS_PROFILE_KEY);
+      } catch {}
+      return { ...DEFAULT_BUSINESS_PROFILE, ...parsed };
+    }
   } catch {}
   return { ...DEFAULT_BUSINESS_PROFILE };
 }
 
-export function saveBusinessProfile(profile) {
+export async function saveBusinessProfile(profile) {
   try {
-    const updated = { ...getBusinessProfile(), ...(profile || {}) };
-    localStorage.setItem(LOCAL_BUSINESS_PROFILE_KEY, JSON.stringify(updated));
+    const current = await getBusinessProfile();
+    const updated = { ...current, ...(profile || {}) };
+    const { error } = await db().from('app_settings').update({ business_profile: updated }).eq('id', 1);
+    if (error) throw error;
+    // Clear legacy localStorage
+    try { localStorage.removeItem(LOCAL_BUSINESS_PROFILE_KEY); } catch {}
     return { success: true, data: updated };
   } catch (err) {
     logError('saveBusinessProfile', err);
@@ -1320,44 +1367,64 @@ export function saveBusinessProfile(profile) {
 }
 
 // ─── Master Plans & Packages Operations ────────────────────
-export function getMasterPlans() {
+export async function getMasterPlans() {
+  try {
+    const { data, error } = await db().from('master_plans').select('*').order('created_at', { ascending: true });
+    if (error) throw error;
+    if (data && data.length > 0) return data;
+  } catch (err) {
+    logError('getMasterPlans', err);
+  }
+  // Fallback: migrate from localStorage if present
   try {
     const raw = localStorage.getItem(LOCAL_MASTER_PLANS_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        // Auto-migrate to Supabase
+        try {
+          const rows = parsed.map((p) => ({
+            name: p.name || 'Unnamed Plan',
+            provider: p.provider || '',
+            connection_type: p.connection_type || 'Broadband',
+            rate: Number(p.rate) || 500,
+          }));
+          await db().from('master_plans').insert(rows);
+          localStorage.removeItem(LOCAL_MASTER_PLANS_KEY);
+        } catch {}
+        return parsed;
+      }
     }
   } catch {}
   return [...DEFAULT_MASTER_PLANS];
 }
 
-export function saveMasterPlans(plans) {
+
+export async function addMasterPlan(plan) {
   try {
-    localStorage.setItem(LOCAL_MASTER_PLANS_KEY, JSON.stringify(plans || []));
-    return { success: true };
+    const newPlan = {
+      name: (plan.name || '').trim(),
+      provider: (plan.provider || '').trim(),
+      connection_type: (plan.connection_type || 'Broadband').trim(),
+      rate: Number(plan.rate) || 500,
+    };
+    if (!newPlan.name) return { success: false, message: 'Plan name is required' };
+    const { data, error } = await db().from('master_plans').insert(newPlan).select().single();
+    if (error) throw error;
+    return { success: true, data };
   } catch (err) {
-    logError('saveMasterPlans', err);
-    return { success: false, message: err?.message || 'Failed to save plans' };
+    logError('addMasterPlan', err);
+    return { success: false, message: err?.message || 'Failed to add plan' };
   }
 }
 
-export function addMasterPlan(plan) {
-  const plans = getMasterPlans();
-  const newPlan = {
-    id: plan.id || generateId(),
-    name: (plan.name || '').trim(),
-    provider: (plan.provider || '').trim(),
-    connection_type: (plan.connection_type || 'Broadband').trim(),
-    rate: Number(plan.rate) || 500,
-  };
-  if (!newPlan.name) return { success: false, message: 'Plan name is required' };
-  plans.push(newPlan);
-  saveMasterPlans(plans);
-  return { success: true, data: newPlan };
-}
-
-export function deleteMasterPlan(id) {
-  const plans = getMasterPlans().filter((p) => p.id !== id);
-  saveMasterPlans(plans);
-  return { success: true };
+export async function deleteMasterPlan(id) {
+  try {
+    const { error } = await db().from('master_plans').delete().eq('id', id);
+    if (error) throw error;
+    return { success: true };
+  } catch (err) {
+    logError('deleteMasterPlan', err);
+    return { success: false, message: err?.message || 'Failed to remove plan' };
+  }
 }

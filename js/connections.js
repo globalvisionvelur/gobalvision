@@ -1330,7 +1330,7 @@ export async function openModal(editId = null, onSaved = null) {
     if (res.success) {
       const savedId = res.data?.id || editId;
       if (savedId) {
-        setSubscriberRate(savedId, rateVal);
+        await setSubscriberRate(savedId, rateVal);
       }
       showToast(editId ? 'Subscriber record updated' : 'Subscriber added', 'success');
       closeModal();
