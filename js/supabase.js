@@ -64,13 +64,31 @@ export function isSupabaseConfigured() {
 export async function testSupabaseConnection(url, anonKey) {
   try {
     const client = createClient(url, anonKey);
-    // Simple ping query
+    // Ping primary table
     const { error } = await client.from('users').select('id').limit(1);
     if (error && error.code !== 'PGRST116') {
-      // Table might not exist yet or auth issue
       return { success: false, message: error.message || 'Could not query table. Did you run the SQL schema?' };
     }
-    return { success: true, message: 'Connected successfully to Supabase!' };
+
+    // Check remaining required tables so missing migrations (e.g. bill_payments) surface clearly
+    const extraTables = ['connections', 'app_settings', 'connection_events', 'bill_payments', 'master_plans'];
+    const missingTables = [];
+    const results = await Promise.all(extraTables.map((t) => client.from(t).select('id').limit(1)));
+    results.forEach((res, idx) => {
+      if (res.error && res.error.code !== 'PGRST116') {
+        missingTables.push(extraTables[idx]);
+      }
+    });
+
+    if (missingTables.length > 0) {
+      return {
+        success: true,
+        missingTables,
+        message: `Connected, but missing table(s): ${missingTables.join(', ')}. Run the SQL schema from Settings.`,
+      };
+    }
+
+    return { success: true, missingTables: [], message: 'Connected successfully to Supabase!' };
   } catch (err) {
     return { success: false, message: err.message || 'Connection failed' };
   }
@@ -159,28 +177,28 @@ ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.connection_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.bill_payments ENABLE ROW LEVEL SECURITY;
 
--- 7. Open Policies (for Anon Key access)
-CREATE POLICY "Allow public read users" ON public.users FOR SELECT USING (true);
-CREATE POLICY "Allow public insert users" ON public.users FOR INSERT WITH CHECK (true);
-CREATE POLICY "Allow public update users" ON public.users FOR UPDATE USING (true);
-CREATE POLICY "Allow public delete users" ON public.users FOR DELETE USING (true);
+-- 7. Open Policies (safe to re-run)
+DO $$ BEGIN CREATE POLICY "Allow public read users" ON public.users FOR SELECT USING (true); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE POLICY "Allow public insert users" ON public.users FOR INSERT WITH CHECK (true); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE POLICY "Allow public update users" ON public.users FOR UPDATE USING (true); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE POLICY "Allow public delete users" ON public.users FOR DELETE USING (true); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY "Allow public read connections" ON public.connections FOR SELECT USING (true);
-CREATE POLICY "Allow public insert connections" ON public.connections FOR INSERT WITH CHECK (true);
-CREATE POLICY "Allow public update connections" ON public.connections FOR UPDATE USING (true);
-CREATE POLICY "Allow public delete connections" ON public.connections FOR DELETE USING (true);
+DO $$ BEGIN CREATE POLICY "Allow public read connections" ON public.connections FOR SELECT USING (true); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE POLICY "Allow public insert connections" ON public.connections FOR INSERT WITH CHECK (true); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE POLICY "Allow public update connections" ON public.connections FOR UPDATE USING (true); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE POLICY "Allow public delete connections" ON public.connections FOR DELETE USING (true); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY "Allow public read app_settings" ON public.app_settings FOR SELECT USING (true);
-CREATE POLICY "Allow public insert app_settings" ON public.app_settings FOR INSERT WITH CHECK (true);
-CREATE POLICY "Allow public update app_settings" ON public.app_settings FOR UPDATE USING (true);
+DO $$ BEGIN CREATE POLICY "Allow public read app_settings" ON public.app_settings FOR SELECT USING (true); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE POLICY "Allow public insert app_settings" ON public.app_settings FOR INSERT WITH CHECK (true); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE POLICY "Allow public update app_settings" ON public.app_settings FOR UPDATE USING (true); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY "Allow public read connection_events" ON public.connection_events FOR SELECT USING (true);
-CREATE POLICY "Allow public insert connection_events" ON public.connection_events FOR INSERT WITH CHECK (true);
+DO $$ BEGIN CREATE POLICY "Allow public read connection_events" ON public.connection_events FOR SELECT USING (true); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE POLICY "Allow public insert connection_events" ON public.connection_events FOR INSERT WITH CHECK (true); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE POLICY "Allow public read bill_payments" ON public.bill_payments FOR SELECT USING (true);
-CREATE POLICY "Allow public insert bill_payments" ON public.bill_payments FOR INSERT WITH CHECK (true);
-CREATE POLICY "Allow public update bill_payments" ON public.bill_payments FOR UPDATE USING (true);
-CREATE POLICY "Allow public delete bill_payments" ON public.bill_payments FOR DELETE USING (true);
+DO $$ BEGIN CREATE POLICY "Allow public read bill_payments" ON public.bill_payments FOR SELECT USING (true); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE POLICY "Allow public insert bill_payments" ON public.bill_payments FOR INSERT WITH CHECK (true); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE POLICY "Allow public update bill_payments" ON public.bill_payments FOR UPDATE USING (true); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE POLICY "Allow public delete bill_payments" ON public.bill_payments FOR DELETE USING (true); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- 8. Seed the single settings row
 INSERT INTO public.app_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
@@ -201,8 +219,8 @@ CREATE TABLE IF NOT EXISTS public.master_plans (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 ALTER TABLE public.master_plans ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Allow public read master_plans" ON public.master_plans FOR SELECT USING (true);
-CREATE POLICY "Allow public insert master_plans" ON public.master_plans FOR INSERT WITH CHECK (true);
-CREATE POLICY "Allow public update master_plans" ON public.master_plans FOR UPDATE USING (true);
-CREATE POLICY "Allow public delete master_plans" ON public.master_plans FOR DELETE USING (true);
+DO $$ BEGIN CREATE POLICY "Allow public read master_plans" ON public.master_plans FOR SELECT USING (true); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE POLICY "Allow public insert master_plans" ON public.master_plans FOR INSERT WITH CHECK (true); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE POLICY "Allow public update master_plans" ON public.master_plans FOR UPDATE USING (true); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE POLICY "Allow public delete master_plans" ON public.master_plans FOR DELETE USING (true); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 `;

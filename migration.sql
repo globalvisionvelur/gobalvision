@@ -38,3 +38,44 @@ DO $$ BEGIN
   CREATE POLICY "Allow public delete master_plans" ON public.master_plans FOR DELETE USING (true);
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
+
+-- 12. Bill Payments table (monthly bill payment tracking per subscriber)
+CREATE TABLE IF NOT EXISTS public.bill_payments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  connection_id UUID REFERENCES public.connections(id) ON DELETE CASCADE,
+  customer_name TEXT NOT NULL,
+  phone TEXT,
+  provider TEXT,
+  connection_type TEXT,
+  billing_month TEXT NOT NULL,
+  amount NUMERIC(10, 2) NOT NULL DEFAULT 0,
+  amount_paid NUMERIC(10, 2) NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'Paid',
+  payment_date DATE,
+  payment_method TEXT DEFAULT 'Cash',
+  reference_id TEXT,
+  notes TEXT,
+  recorded_by UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  recorded_by_name TEXT,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  CONSTRAINT bill_payments_conn_month UNIQUE (connection_id, billing_month)
+);
+ALTER TABLE public.bill_payments ENABLE ROW LEVEL SECURITY;
+
+DO $$ BEGIN
+  CREATE POLICY "Allow public read bill_payments" ON public.bill_payments FOR SELECT USING (true);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE POLICY "Allow public insert bill_payments" ON public.bill_payments FOR INSERT WITH CHECK (true);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE POLICY "Allow public update bill_payments" ON public.bill_payments FOR UPDATE USING (true);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE POLICY "Allow public delete bill_payments" ON public.bill_payments FOR DELETE USING (true);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;

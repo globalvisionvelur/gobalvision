@@ -105,6 +105,9 @@ export async function initStore() {
       }
     } catch {}
 
+    // Migrate cached localStorage bill_payments to Supabase once public.bill_payments exists
+    await migrateLocalBillPayments(client);
+
     return { ok: true };
   } catch (err) {
     logError('initStore', err);
@@ -393,6 +396,62 @@ function saveLocalPayments(list) {
     localStorage.setItem(LOCAL_PAYMENTS_KEY, JSON.stringify(list));
   } catch (e) {
     console.error('Failed to save bill payments locally:', e);
+  }
+}
+
+async function migrateLocalBillPayments(client) {
+  let local = [];
+  try {
+    local = JSON.parse(localStorage.getItem(LOCAL_PAYMENTS_KEY) || '[]');
+  } catch {
+    return;
+  }
+  if (!Array.isArray(local) || local.length === 0) return;
+
+  try {
+    // Verify bill_payments table is accessible before migrating
+    const { error: probeErr } = await client.from('bill_payments').select('id').limit(1);
+    if (probeErr && probeErr.code !== 'PGRST116') return;
+
+    const { data: conns, error: connErr } = await client.from('connections').select('id');
+    if (connErr) return;
+    const validConnIds = new Set((conns || []).map((c) => c.id));
+
+    const rows = local
+      .filter((p) => p && p.connection_id && validConnIds.has(p.connection_id) && p.billing_month)
+      .map((p) => ({
+        connection_id: p.connection_id,
+        customer_name: p.customer_name || 'Subscriber',
+        phone: p.phone || '',
+        provider: p.provider || '',
+        connection_type: p.connection_type || '',
+        billing_month: p.billing_month,
+        amount: Number(p.amount) || 0,
+        amount_paid: Number(p.amount_paid ?? p.amount) || 0,
+        status: p.status || 'Paid',
+        payment_date: p.payment_date || todayISO(),
+        payment_method: p.payment_method || 'Cash',
+        reference_id: p.reference_id || '',
+        notes: p.notes || '',
+        recorded_by: p.recorded_by || null,
+        recorded_by_name: p.recorded_by_name || null,
+        created_at: p.created_at || new Date().toISOString(),
+        updated_at: p.updated_at || new Date().toISOString(),
+      }));
+
+    if (rows.length > 0) {
+      const { error: upsertErr } = await client
+        .from('bill_payments')
+        .upsert(rows, { onConflict: 'connection_id,billing_month', ignoreDuplicates: true });
+      if (upsertErr) {
+        logError('migrateLocalBillPayments', upsertErr);
+        return;
+      }
+    }
+
+    localStorage.removeItem(LOCAL_PAYMENTS_KEY);
+  } catch (err) {
+    logError('migrateLocalBillPayments', err);
   }
 }
 
@@ -1016,9 +1075,14 @@ export async function getBackupSnapshot() {
 
   const billPayments = await getBillPayments();
   let masterPlans = [];
+  let connectionEvents = [];
   try {
-    const { data: plans } = await client.from('master_plans').select('*');
+    const [{ data: plans }, { data: events }] = await Promise.all([
+      client.from('master_plans').select('*'),
+      client.from('connection_events').select('*').order('created_at', { ascending: false }),
+    ]);
     masterPlans = plans || [];
+    connectionEvents = events || [];
   } catch {}
 
   return {
@@ -1027,6 +1091,7 @@ export async function getBackupSnapshot() {
     settings: settings.data || null,
     master_plans: masterPlans,
     bill_payments: billPayments || [],
+    connection_events: connectionEvents,
     exported_at: new Date().toISOString(),
   };
 }

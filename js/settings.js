@@ -834,8 +834,16 @@ export async function renderSettings() {
       }
       const result = await testSupabaseConnection(sbConfig.url, sbConfig.anonKey);
       if (statusEl) {
-        statusEl.textContent = result.success ? 'Connected' : 'Error';
-        statusEl.style.color = result.success ? 'var(--success)' : 'var(--danger)';
+        if (!result.success) {
+          statusEl.textContent = 'Error';
+          statusEl.style.color = 'var(--danger)';
+        } else if (result.missingTables?.length) {
+          statusEl.textContent = `Missing: ${result.missingTables.join(', ')}`;
+          statusEl.style.color = 'var(--warning)';
+        } else {
+          statusEl.textContent = 'Connected';
+          statusEl.style.color = 'var(--success)';
+        }
       }
     })();
 
@@ -848,7 +856,13 @@ export async function renderSettings() {
         }
         showToast('Testing connection…', 'warning');
         const result = await testSupabaseConnection(sbConfig.url, sbConfig.anonKey);
-        if (result.success) {
+        if (result.success && result.missingTables?.length) {
+          showToast(result.message, 'warning');
+          if (statusEl) {
+            statusEl.textContent = `Missing: ${result.missingTables.join(', ')}`;
+            statusEl.style.color = 'var(--warning)';
+          }
+        } else if (result.success) {
           showToast('Connection verified!', 'success');
           if (statusEl) {
             statusEl.textContent = 'Connected';
