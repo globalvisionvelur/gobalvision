@@ -320,8 +320,9 @@ export async function renderDashboard(onAddNew, onViewConnection, onRefresh) {
   // Clickable customer name opens Customer 360 Drawer
   view.querySelectorAll('.queue-name-clickable').forEach((el) => {
     el.addEventListener('click', () => {
-      openCustomerDrawer(el.dataset.id, () => {
-        renderDashboard(onAddNew, onViewConnection, onRefresh);
+      openCustomerDrawer(el.dataset.id, async () => {
+        await renderDashboard(onAddNew, onViewConnection, onRefresh);
+        if (onRefresh) await onRefresh();
       });
     });
   });

@@ -36,6 +36,7 @@ import {
   ICONS,
   showToast,
   debounce,
+  confirmDialog,
   exportMonthlyBillingCSV,
   exportOverdueLedgerCSV,
   generateReceiptSlipHTML,
@@ -1409,7 +1410,12 @@ export async function openRecordPaymentModal(options = {}) {
   const deleteBtn = document.getElementById('bpm-delete-btn');
   if (deleteBtn && editId) {
     deleteBtn.onclick = async () => {
-      if (!window.confirm('Delete this payment record? The customer will show as Yet to Pay.')) return;
+      const ok = await confirmDialog({
+        title: 'Delete Payment Record',
+        message: 'Delete this payment record? The customer will show as Yet to Pay.',
+        confirmText: 'Delete',
+      });
+      if (!ok) return;
       deleteBtn.disabled = true;
       await deleteBillPayment(editId);
       showToast('Payment record deleted', 'success');

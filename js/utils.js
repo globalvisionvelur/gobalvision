@@ -446,6 +446,61 @@ export function exportOverdueLedgerCSV(records) {
   downloadFile(csvContent, `globalvision_overdue_ledger_${todayISO()}.csv`, 'text/csv;charset=utf-8;');
 }
 
+// ─── Confirmation Modal Dialog (Native <dialog>) ───────────
+export function confirmDialog({
+  title = 'Confirm Action',
+  message = 'Are you sure?',
+  confirmText = 'Confirm',
+  cancelText = 'Cancel',
+  danger = true,
+} = {}) {
+  return new Promise((resolve) => {
+    const dialog = document.createElement('dialog');
+    dialog.className = 'gv-confirm-dialog';
+    dialog.setAttribute('closedby', 'any');
+    dialog.setAttribute('aria-labelledby', 'gv-confirm-title');
+
+    dialog.innerHTML = `
+      <form method="dialog" class="gv-confirm-form">
+        <div class="gv-confirm-header">
+          <h1 id="gv-confirm-title">${escapeHtml(title)}</h1>
+          <button type="submit" value="cancel" class="icon-btn" aria-label="Close">${ICONS.close}</button>
+        </div>
+        <p class="gv-confirm-message">${escapeHtml(message)}</p>
+        <div class="gv-confirm-actions">
+          <button type="submit" value="cancel" class="btn btn-ghost" autofocus>${escapeHtml(cancelText)}</button>
+          <button type="submit" value="confirm" class="btn ${danger ? 'btn-danger' : 'btn-primary'}">${escapeHtml(confirmText)}</button>
+        </div>
+      </form>
+    `;
+
+    // Fallback for browsers lacking closedby="any" (e.g. Safari)
+    if (!('closedBy' in HTMLDialogElement.prototype)) {
+      const outside = (e) => {
+        const r = dialog.getBoundingClientRect();
+        return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
+      };
+      let pressedOutside = false;
+      dialog.addEventListener('pointerdown', (e) => {
+        pressedOutside = outside(e);
+      });
+      dialog.addEventListener('pointerup', (e) => {
+        if (pressedOutside && outside(e)) dialog.close('cancel');
+      });
+    }
+
+    dialog.addEventListener('close', () => {
+      const confirmed = dialog.returnValue === 'confirm';
+      dialog.returnValue = '';
+      dialog.remove();
+      resolve(confirmed);
+    });
+
+    document.body.appendChild(dialog);
+    dialog.showModal();
+  });
+}
+
 // ─── Toast Notifications ───────────────────────────────────
 let toastTimeout = null;
 export function showToast(message, type = 'success') {

@@ -166,9 +166,6 @@ export async function renderConnections(onRefreshDashboard) {
 
     <!-- Floating Bulk Actions Bar -->
     <div id="conn-bulk-bar" class="bulk-action-bar hidden"></div>
-
-    <!-- Customer 360 Drawer Overlay -->
-    <div id="customer-drawer-container"></div>
   `;
 
   // Bind toolbar actions
@@ -762,16 +759,39 @@ function renderTableRow(c, tiers) {
 // ═════════════════════════════════════════════════════════════
 // CUSTOMER 360° DRAWER / PROFILE MODAL
 // ═════════════════════════════════════════════════════════════
-export async function openCustomerDrawer(connectionId) {
-  const container = document.getElementById('customer-drawer-container');
+let drawerEscHandler = null;
+
+export async function openCustomerDrawer(connectionId, onRefresh = null) {
+  const container = document.getElementById('customer-drawer');
   if (!container) return;
 
+  if (drawerEscHandler) {
+    document.removeEventListener('keydown', drawerEscHandler);
+    drawerEscHandler = null;
+  }
+
+  const closeDrawer = () => {
+    container.classList.add('hidden');
+    container.innerHTML = '';
+    if (drawerEscHandler) {
+      document.removeEventListener('keydown', drawerEscHandler);
+      drawerEscHandler = null;
+    }
+  };
+
+  drawerEscHandler = (e) => {
+    if (e.key === 'Escape') closeDrawer();
+  };
+  document.addEventListener('keydown', drawerEscHandler);
+
+  container.classList.remove('hidden');
   container.innerHTML = `
     <div class="drawer-backdrop" id="drawer-backdrop"></div>
     <div class="drawer-content drawer-loading">
       <div style="padding: 40px; text-align: center; color: var(--text-muted);">Loading customer profile…</div>
     </div>
   `;
+  document.getElementById('drawer-backdrop').onclick = closeDrawer;
 
   const [conn, tiers, billingHistory, allEvents, business] = await Promise.all([
     getConnectionById(connectionId),
@@ -783,7 +803,7 @@ export async function openCustomerDrawer(connectionId) {
 
   if (!conn) {
     showToast('Customer not found', 'error');
-    container.innerHTML = '';
+    closeDrawer();
     return;
   }
 
@@ -983,12 +1003,16 @@ export async function openCustomerDrawer(connectionId) {
     </div>
   `;
 
-  const closeDrawer = () => {
-    container.innerHTML = '';
-  };
-
   document.getElementById('drawer-backdrop').onclick = closeDrawer;
   document.getElementById('drawer-close-btn').onclick = closeDrawer;
+
+  const afterDrawerMutation = async () => {
+    if (document.getElementById('connections-table-container')) {
+      await renderTable();
+    }
+    if (refreshDashboardCb) await refreshDashboardCb();
+    if (onRefresh) await onRefresh();
+  };
 
   // Quick renew buttons from Drawer
   document.getElementById('dr-renew-1m-btn').onclick = async (e) => {
@@ -1001,8 +1025,7 @@ export async function openCustomerDrawer(connectionId) {
     if (res.success) {
       showToast('Extended validity by 1 month', 'success');
       closeDrawer();
-      await renderTable();
-      if (refreshDashboardCb) refreshDashboardCb();
+      await afterDrawerMutation();
     } else {
       showToast(res.message || 'Renewal failed', 'error');
       btn.disabled = false;
@@ -1019,8 +1042,7 @@ export async function openCustomerDrawer(connectionId) {
     if (res.success) {
       showToast('Extended validity by 3 months', 'success');
       closeDrawer();
-      await renderTable();
-      if (refreshDashboardCb) refreshDashboardCb();
+      await afterDrawerMutation();
     } else {
       showToast(res.message || 'Renewal failed', 'error');
       btn.disabled = false;
@@ -1029,10 +1051,7 @@ export async function openCustomerDrawer(connectionId) {
 
   document.getElementById('dr-pay-btn').onclick = () => {
     closeDrawer();
-    openCustomerBillingModal(conn.id, () => {
-      renderTable();
-      if (refreshDashboardCb) refreshDashboardCb();
-    });
+    openCustomerBillingModal(conn.id, afterDrawerMutation);
   };
 
   const settleDuesBtn = document.getElementById('dr-settle-dues-btn');
@@ -1045,20 +1064,14 @@ export async function openCustomerDrawer(connectionId) {
         phone: conn.phone,
         provider: conn.provider,
         connectionType: conn.connection_type,
-        onSaved: () => {
-          renderTable();
-          if (refreshDashboardCb) refreshDashboardCb();
-        },
+        onSaved: afterDrawerMutation,
       });
     };
   }
 
   document.getElementById('dr-edit-btn').onclick = () => {
     closeDrawer();
-    openModal(conn.id, () => {
-      renderTable();
-      if (refreshDashboardCb) refreshDashboardCb();
-    });
+    openModal(conn.id, afterDrawerMutation);
   };
 }
 

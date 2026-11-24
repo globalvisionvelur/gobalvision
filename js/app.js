@@ -172,10 +172,19 @@ async function showMainApp(user) {
   await navigateTo('dashboard');
 }
 
+async function refreshSidebar() {
+  const user = await getCurrentUser();
+  if (user) await renderSidebar(user);
+}
+
 function setupTopBar() {
   const globalAddBtn = document.getElementById('global-add-btn');
   if (globalAddBtn) {
-    globalAddBtn.onclick = () => openModal(null, () => navigateTo(currentView));
+    globalAddBtn.onclick = () =>
+      openModal(null, async () => {
+        await navigateTo(currentView);
+        await refreshSidebar();
+      });
   }
 
   const themeBtn = document.getElementById('theme-toggle-btn');
@@ -225,8 +234,8 @@ async function renderSidebar(user) {
       </div>
     </div>
 
-    <nav class="sidebar-nav">
-      <a href="#" class="nav-link ${currentView === 'dashboard' ? 'active' : ''}" data-view="dashboard">
+    <nav class="sidebar-nav" aria-label="Primary">
+      <a href="#" class="nav-link ${currentView === 'dashboard' ? 'active' : ''}" ${currentView === 'dashboard' ? 'aria-current="page"' : ''} data-view="dashboard">
         <div class="nav-link-left">
           ${ICONS.dashboard}
           <span>Dashboard</span>
@@ -234,7 +243,7 @@ async function renderSidebar(user) {
         ${urgentCount > 0 ? `<span class="nav-badge-count">${urgentCount}</span>` : ''}
       </a>
 
-      <a href="#" class="nav-link ${currentView === 'billing' ? 'active' : ''}" data-view="billing">
+      <a href="#" class="nav-link ${currentView === 'billing' ? 'active' : ''}" ${currentView === 'billing' ? 'aria-current="page"' : ''} data-view="billing">
         <div class="nav-link-left">
           ${ICONS.receipt}
           <span>Billing & Payments</span>
@@ -242,21 +251,21 @@ async function renderSidebar(user) {
         ${pendingBillsCount > 0 ? `<span class="nav-badge-count" style="background: var(--warning); color: #fff;">${pendingBillsCount}</span>` : ''}
       </a>
 
-      <a href="#" class="nav-link ${currentView === 'connections' ? 'active' : ''}" data-view="connections">
+      <a href="#" class="nav-link ${currentView === 'connections' ? 'active' : ''}" ${currentView === 'connections' ? 'aria-current="page"' : ''} data-view="connections">
         <div class="nav-link-left">
           ${ICONS.connections}
           <span>Subscribers</span>
         </div>
       </a>
 
-      <a href="#" class="nav-link ${currentView === 'logs' ? 'active' : ''}" data-view="logs">
+      <a href="#" class="nav-link ${currentView === 'logs' ? 'active' : ''}" ${currentView === 'logs' ? 'aria-current="page"' : ''} data-view="logs">
         <div class="nav-link-left">
           ${ICONS.clock}
           <span>Logs</span>
         </div>
       </a>
 
-      <a href="#" class="nav-link ${currentView === 'settings' ? 'active' : ''}" data-view="settings">
+      <a href="#" class="nav-link ${currentView === 'settings' ? 'active' : ''}" ${currentView === 'settings' ? 'aria-current="page"' : ''} data-view="settings">
         <div class="nav-link-left">
           ${ICONS.settings}
           <span>Settings</span>
@@ -290,25 +299,30 @@ async function renderSidebar(user) {
 
 function renderMobileNav() {
   const nav = document.getElementById('mobile-nav');
+  nav.setAttribute('aria-label', 'Mobile Navigation');
 
   nav.innerHTML = `
-    <a href="#" class="mobile-tab-btn ${currentView === 'dashboard' ? 'active' : ''}" data-view="dashboard">
+    <a href="#" class="mobile-tab-btn ${currentView === 'dashboard' ? 'active' : ''}" ${currentView === 'dashboard' ? 'aria-current="page"' : ''} data-view="dashboard">
       ${ICONS.dashboard}
       <span>Home</span>
     </a>
-    <a href="#" class="mobile-tab-btn ${currentView === 'billing' ? 'active' : ''}" data-view="billing">
+    <a href="#" class="mobile-tab-btn ${currentView === 'billing' ? 'active' : ''}" ${currentView === 'billing' ? 'aria-current="page"' : ''} data-view="billing">
       ${ICONS.receipt}
       <span>Billing</span>
     </a>
-    <a href="#" class="mobile-tab-btn ${currentView === 'connections' ? 'active' : ''}" data-view="connections">
+    <a href="#" class="mobile-tab-btn ${currentView === 'connections' ? 'active' : ''}" ${currentView === 'connections' ? 'aria-current="page"' : ''} data-view="connections">
       ${ICONS.connections}
-      <span>Subscribers</span>
+      <span>Subs</span>
     </a>
-    <a href="#" class="mobile-tab-btn" id="mobile-add-btn" style="color: var(--accent);">
+    <button type="button" class="mobile-tab-btn" id="mobile-add-btn" style="color: var(--accent);">
       ${ICONS.plus}
       <span>Add</span>
+    </button>
+    <a href="#" class="mobile-tab-btn ${currentView === 'logs' ? 'active' : ''}" ${currentView === 'logs' ? 'aria-current="page"' : ''} data-view="logs">
+      ${ICONS.clock}
+      <span>Logs</span>
     </a>
-    <a href="#" class="mobile-tab-btn ${currentView === 'settings' ? 'active' : ''}" data-view="settings">
+    <a href="#" class="mobile-tab-btn ${currentView === 'settings' ? 'active' : ''}" ${currentView === 'settings' ? 'aria-current="page"' : ''} data-view="settings">
       ${ICONS.settings}
       <span>Settings</span>
     </a>
@@ -324,7 +338,10 @@ function renderMobileNav() {
 
   document.getElementById('mobile-add-btn').addEventListener('click', (e) => {
     e.preventDefault();
-    openModal(null, () => navigateTo(currentView));
+    openModal(null, async () => {
+      await navigateTo(currentView);
+      await refreshSidebar();
+    });
   });
 }
 
@@ -333,10 +350,16 @@ async function navigateTo(view) {
 
   // Update nav active states
   document.querySelectorAll('.nav-link').forEach((l) => {
-    l.classList.toggle('active', l.dataset.view === view);
+    const isActive = l.dataset.view === view;
+    l.classList.toggle('active', isActive);
+    if (isActive) l.setAttribute('aria-current', 'page');
+    else l.removeAttribute('aria-current');
   });
   document.querySelectorAll('.mobile-tab-btn[data-view]').forEach((b) => {
-    b.classList.toggle('active', b.dataset.view === view);
+    const isActive = b.dataset.view === view;
+    b.classList.toggle('active', isActive);
+    if (isActive) b.setAttribute('aria-current', 'page');
+    else b.removeAttribute('aria-current');
   });
 
   // Toggle view visibility
@@ -486,18 +509,23 @@ async function openQuickSearchModal() {
       )
       .join('');
 
+    const refreshAfterQuickAction = async () => {
+      await navigateTo(currentView);
+      await refreshSidebar();
+    };
+
     resultsEl.querySelectorAll('.qs-result-item').forEach((row) => {
       row.onclick = (e) => {
         if (e.target.closest('.qs-pay-btn') || e.target.closest('.qs-view-btn')) return;
         closeQuickSearchModal();
-        openCustomerDrawer(row.dataset.id, () => navigateTo(currentView));
+        openCustomerDrawer(row.dataset.id, refreshAfterQuickAction);
       };
     });
 
     resultsEl.querySelectorAll('.qs-view-btn').forEach((btn) => {
       btn.onclick = () => {
         closeQuickSearchModal();
-        openCustomerDrawer(btn.dataset.id, () => navigateTo(currentView));
+        openCustomerDrawer(btn.dataset.id, refreshAfterQuickAction);
       };
     });
 
@@ -511,7 +539,7 @@ async function openQuickSearchModal() {
           provider: btn.dataset.provider,
           connectionType: btn.dataset.type,
           status: 'Paid',
-          onSaved: () => navigateTo(currentView),
+          onSaved: refreshAfterQuickAction,
         });
       };
     });

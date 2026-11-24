@@ -1418,6 +1418,24 @@ export async function addMasterPlan(plan) {
   }
 }
 
+export async function updateMasterPlan(id, plan) {
+  try {
+    const updates = {
+      name: (plan.name || '').trim(),
+      provider: (plan.provider || '').trim(),
+      connection_type: (plan.connection_type || 'Broadband').trim(),
+      rate: Number(plan.rate) || 500,
+    };
+    if (!updates.name) return { success: false, message: 'Plan name is required' };
+    const { data, error } = await db().from('master_plans').update(updates).eq('id', id).select().single();
+    if (error) throw error;
+    return { success: true, data };
+  } catch (err) {
+    logError('updateMasterPlan', err);
+    return { success: false, message: err?.message || 'Failed to update plan' };
+  }
+}
+
 export async function deleteMasterPlan(id) {
   try {
     const { error } = await db().from('master_plans').delete().eq('id', id);

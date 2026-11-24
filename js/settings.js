@@ -25,6 +25,7 @@ import {
   saveBusinessProfile,
   getMasterPlans,
   addMasterPlan,
+  updateMasterPlan,
   deleteMasterPlan,
 } from './store.js';
 import {
@@ -42,6 +43,7 @@ import {
   getTierColorVars,
   todayISO,
   formatCurrency,
+  confirmDialog,
 } from './utils.js';
 
 let activeSettingsTab = 'team'; // 'team' | 'business' | 'plans' | 'providers' | 'system'
@@ -296,7 +298,10 @@ export async function renderSettings() {
                   </div>
                   ${p.provider ? `<div style="font-size: 11px; color: var(--text-muted);">${escapeHtml(p.provider)}</div>` : ''}
                 </div>
-                <div style="display: flex; justify-content: flex-end; margin-top: 10px; border-top: 1px solid var(--border-subtle); padding-top: 8px;">
+                <div style="display: flex; justify-content: flex-end; gap: 6px; margin-top: 10px; border-top: 1px solid var(--border-subtle); padding-top: 8px;">
+                  <button type="button" class="btn btn-sm btn-ghost btn-edit-plan" data-id="${p.id}" title="Edit Plan">
+                    ${ICONS.edit} Edit
+                  </button>
                   <button type="button" class="btn btn-sm btn-ghost text-danger btn-del-plan" data-id="${p.id}" title="Delete Plan">
                     ${ICONS.trash} Remove
                   </button>
@@ -471,10 +476,7 @@ export async function renderSettings() {
       }
     </div>
 
-    <!-- SQL Modal -->
-    <div id="sql-modal" class="modal hidden"></div>
-
-    <!-- Edit User Modal -->
+    <!-- Edit User / Plan Modal -->
     <div id="edit-user-modal" class="modal hidden"></div>
   `;
 
@@ -599,7 +601,12 @@ export async function renderSettings() {
       btn.addEventListener('click', async () => {
         const uId = btn.dataset.id;
         const name = btn.closest('.team-item')?.querySelector('.team-name')?.textContent.trim() || 'this team member';
-        if (!window.confirm(`Remove ${name}? Their sign-in PIN will stop working.`)) return;
+        const ok = await confirmDialog({
+          title: 'Remove Team Member',
+          message: `Remove ${name}? Their sign-in PIN will stop working.`,
+          confirmText: 'Remove',
+        });
+        if (!ok) return;
         btn.disabled = true;
         const res = await deleteUser(uId);
         if (res.success) {
@@ -660,10 +667,26 @@ export async function renderSettings() {
       });
     }
 
+    view.querySelectorAll('.btn-edit-plan').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const plan = masterPlans.find((p) => p.id === btn.dataset.id);
+        if (plan) openEditPlanModal(plan, providers, connectionTypes);
+      });
+    });
+
     view.querySelectorAll('.btn-del-plan').forEach((btn) => {
       btn.addEventListener('click', async () => {
-        if (!window.confirm('Delete this plan package?')) return;
-        await deleteMasterPlan(btn.dataset.id);
+        const ok = await confirmDialog({
+          title: 'Delete Plan Package',
+          message: 'Delete this plan package? Existing subscribers will keep their current rate.',
+          confirmText: 'Delete',
+        });
+        if (!ok) return;
+        const res = await deleteMasterPlan(btn.dataset.id);
+        if (res?.success === false) {
+          showToast(res.message || 'Failed to delete plan', 'error');
+          return;
+        }
         showToast('Plan removed', 'success');
         renderSettings();
       });
@@ -843,8 +866,13 @@ export async function renderSettings() {
 
     const dbDisconnectBtn = document.getElementById('db-disconnect-btn');
     if (dbDisconnectBtn) {
-      dbDisconnectBtn.addEventListener('click', () => {
-        if (!window.confirm('Disconnect from Supabase? The app will reload and you will need the URL and anon key to reconnect.')) return;
+      dbDisconnectBtn.addEventListener('click', async () => {
+        const ok = await confirmDialog({
+          title: 'Disconnect from Supabase',
+          message: 'Disconnect from Supabase? The app will reload and you will need the URL and anon key to reconnect.',
+          confirmText: 'Disconnect',
+        });
+        if (!ok) return;
         saveSupabaseConfig({ url: '', anonKey: '', enabled: false });
         showToast('Disconnected from Supabase', 'success');
         window.location.reload();
@@ -866,7 +894,7 @@ export async function renderSettings() {
             <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">
               Execute this in your Supabase SQL Editor (<strong>SQL Editor &rarr; New Query</strong>):
             </p>
-            <pre style="background: var(--bg-input); border: 1px solid var(--border-default); border-radius: var(--radius-sm); padding: 14px; font-family: var(--font-mono); font-size: 11px; color: var(--accent); max-height: 250px; overflow-y: auto; white-space: pre-wrap;"><code>${SUPABASE_SQL_SCHEMA}</code></pre>
+            <pre style="background: var(--bg-input); border: 1px solid var(--border-default); border-radius: var(--radius-sm); padding: 14px; font-family: var(--font-mono); font-size: 11px; color: var(--accent); max-height: 250px; overflow-y: auto; white-space: pre-wrap;"><code>${escapeHtml(SUPABASE_SQL_SCHEMA)}</code></pre>
             <div style="display: flex; justify-content: flex-end; margin-top: 14px;">
               <button type="button" class="btn btn-primary" id="copy-sql-btn">
                 ${ICONS.copy} Copy SQL to Clipboard
@@ -995,6 +1023,96 @@ function openEditUserModal(userId, currentName) {
       showToast(res.message || 'Failed to update member', 'error');
       saveBtn.disabled = false;
       saveBtn.textContent = 'Save Member Details';
+    }
+  };
+}
+
+/**
+ * Edit Master Plan Modal
+ */
+function openEditPlanModal(plan, providers, connectionTypes) {
+  const modal = document.getElementById('edit-user-modal') || document.getElementById('connection-modal');
+  if (!modal) return;
+
+  modal.innerHTML = `
+    <div class="modal-backdrop" id="edit-plan-backdrop"></div>
+    <div class="modal-content" style="max-width: 460px;">
+      <div class="modal-header">
+        <h2>Edit Plan Package</h2>
+        <button class="icon-btn" id="edit-plan-close">${ICONS.close}</button>
+      </div>
+
+      <form id="edit-plan-form" autocomplete="off">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="ep-name">Plan Name *</label>
+            <input type="text" id="ep-name" value="${escapeHtml(plan.name)}" required />
+          </div>
+          <div class="form-group">
+            <label for="ep-rate">Monthly Rate (₹) *</label>
+            <input type="number" id="ep-rate" min="1" step="1" value="${Number(plan.rate) || 500}" required />
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="ep-type">Service Type *</label>
+            <select id="ep-type" required>
+              ${connectionTypes.map((t) => `<option value="${escapeHtml(t)}" ${plan.connection_type === t ? 'selected' : ''}>${escapeHtml(t)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="ep-provider">Associated Provider (Optional)</label>
+            <select id="ep-provider">
+              <option value="">Any Provider</option>
+              ${providers.map((p) => `<option value="${escapeHtml(p)}" ${plan.provider === p ? 'selected' : ''}>${escapeHtml(p)}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+
+        <div class="modal-actions" style="margin-top: 20px;">
+          <button type="button" class="btn btn-ghost" id="ep-cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="ep-save">Save Plan</button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  modal.classList.remove('hidden');
+
+  const closeModal = () => {
+    modal.classList.add('hidden');
+    modal.innerHTML = '';
+  };
+
+  document.getElementById('edit-plan-backdrop').onclick = closeModal;
+  document.getElementById('edit-plan-close').onclick = closeModal;
+  document.getElementById('ep-cancel').onclick = closeModal;
+
+  document.getElementById('edit-plan-form').onsubmit = async (e) => {
+    e.preventDefault();
+    const name = document.getElementById('ep-name').value.trim();
+    const rate = Number(document.getElementById('ep-rate').value) || 0;
+    const connection_type = document.getElementById('ep-type').value;
+    const provider = document.getElementById('ep-provider').value;
+
+    if (!name || rate <= 0) {
+      showToast('Please enter a valid plan name and monthly rate', 'error');
+      return;
+    }
+
+    const saveBtn = document.getElementById('ep-save');
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving…';
+
+    const res = await updateMasterPlan(plan.id, { name, rate, connection_type, provider });
+    if (res.success) {
+      showToast(`Plan "${name}" updated`, 'success');
+      closeModal();
+      renderSettings();
+    } else {
+      showToast(res.message || 'Failed to update plan', 'error');
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Save Plan';
     }
   };
 }
